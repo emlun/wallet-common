@@ -74,6 +74,7 @@ describe("Suite:", () => {
 
 		describe("create_generators", () => {
 			it("passes test vectors", async () => {
+				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-message-generators-2
 				const { api_id, create_generators } = getCipherSuite(suiteId);
 				const count = 11;
 				const generators = await create_generators(count, api_id);
