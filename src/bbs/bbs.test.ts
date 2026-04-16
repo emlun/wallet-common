@@ -92,6 +92,20 @@ describe("Suite:", () => {
 				assert.equal(toHex(generators[10].toBytes()), "a1f229540474f4d6f1134761b92b788128c7ac8dc9b0c52d59493132679673032ac7db3fb3d79b46b13c1c41ee495bca");
 			});
 
+			it("generates the same sequence independent of count", async () => {
+				const { api_id, create_generators } = getCipherSuite(suiteId);
+				const count1 = 5;
+				const count2 = count1 + Math.round(1 + 10*Math.random());
+				const generators1 = await create_generators(count1, api_id);
+				const generators2 = await create_generators(count2, api_id);
+
+				assert(generators2.length > generators1.length);
+				assert(generators1.every((g1, i) => {
+					assert.equal(toHex(g1.toBytes()), toHex(generators2[i].toBytes()));
+					return true;
+				}));
+			});
+
 			it("generates the correct P1", async () => {
 				// See: https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-bls12-381-ciphersuites
 				const { params: { P1 }, create_generators } = getCipherSuite(
