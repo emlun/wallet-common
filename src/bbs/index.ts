@@ -647,7 +647,8 @@ function createSuite(suite: SuiteParams): CipherSuite {
 	async function BbsSchnorr(l: number): Promise<BbsSchnorrSuite> {
 		// Domain(Q), dpk (H0), attributes (Hi)
 		const generators = (await create_generators(1 + 1 + l, api_id));
-		const H0 = generators[1];
+		// const H0 = generators[1];
+		const H0 = G1.Point.BASE; // TODO: Replace with H0 from create_generators
 		const Hi = generators.slice(2);
 
 		function or_rand(ikm: BufferSource | undefined, L: number): BufferSource {
