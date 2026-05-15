@@ -374,5 +374,37 @@ describe("Suite:", () => {
 				});
 			});
 		});
+
+		describe("BBS-Schnorr", async () => {
+			const { BbsSchnorr } = getCipherSuite(suiteId);
+
+			it("works.", async () => {
+				const { iss_kgen, dev_kgen, issue, verify, vf_cred, show_user_1, show_se_1, show_user_2 } = await BbsSchnorr(3);
+
+				const [isk, ipk] = await iss_kgen();
+				const [dsk, dpk] = await dev_kgen();
+				const attrs = [1n, 2n, 3n];
+				const sigma = await issue(isk, dpk, attrs);
+
+				assert(vf_cred(ipk, sigma, dpk, attrs));
+
+				const [ust, umsg] = await show_user_1(ipk, dpk, sigma, attrs, new TextEncoder().encode("Hello, World!"), [1]);
+				const smsg = await show_se_1(ipk, dsk, umsg, new TextEncoder().encode("Hello, World!"));
+				const tau = await show_user_2(ust, smsg);
+
+				const smsg2 = await show_se_1(ipk, dsk, umsg, new TextEncoder().encode("Hello, Worldz!"));
+				const tau2 = await show_user_2(ust, smsg2);
+
+				assert(await verify(ipk, new TextEncoder().encode("Hello, World!"), [1], [2n], tau));
+				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, World!"), [1], [2n], tau2), "Expected invalid proof to fail verification");
+				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, World!"), [], [], tau), "Expected too few attributes to fail verification");
+				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, World!"), [], [2n], tau), "Expected unmatched attributes and indices to fail verification");
+				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, World!"), [1], [1n], tau), "Expected incorrect attribute (1) to fail verification");
+				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, World!"), [1], [3n], tau), "Expected incorrect attribute (3) to fail verification");
+				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, Worldz!"), [1], [2n], tau), "Expected incorrect ctx to fail verification");
+				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, World!"), [0, 1], [1n, 2n], tau), "Expected disclosed-and-undisclosed attribute to fail verification");
+				asyncAssertThrows(() => verify(ipk.multiply(2), new TextEncoder().encode("Hello, World!"), [1], [2n], tau), "Expected incorrect issuer public key to fail verification");
+			});
+		});
 	});
 });
