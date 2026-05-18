@@ -1,11 +1,10 @@
 export enum CredentialParsingError {
+	UnsupportedFormat = "UnsupportedFormat",
 	CouldNotParse = "CouldNotParse",
 	InvalidSdJwtVcPayload = "InvalidSdJwtVcPayload",
 	InvalidDatatype = "InvalidDatatype",
 	NotSupportedCredentialType = "NotSupportedCredentialType",
-	HeaderFail = "HeaderFail",
 	InfiniteRecursion = "InfiniteRecursion",
-	PayloadFail = "PayloadFail",
 	VctmDecodeFail = "VctmDecodeFail",
 	UnknownError = "UnknownError",
 	NotFound = "NotFound",

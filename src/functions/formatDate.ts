@@ -1,6 +1,6 @@
 export function formatDate(value: any, format = 'datetime') {
-	// Regex for ISO 8601 format like '2024-10-08T07:28:49.117Z'
-	const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/;
+	// Regex for ISO 8601 format like '2024-10-08T07:28:49.117Z'. milliseconds are optional.
+	const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/;
 	// Regex for simple YYYY-MM-DD format
 	const simpleDateRegex = /^\d{4}-\d{2}-\d{2}$/;
 	// Regex for long-form date strings like 'Wed Dec 11 2024 14:46:19 GMT+0200'
@@ -8,9 +8,19 @@ export function formatDate(value: any, format = 'datetime') {
 
 	let date;
 
-	if (typeof value === 'number' && value.toString().length === 10) {
-		// Handle Unix timestamp (seconds) by converting to milliseconds
-		date = new Date(value * 1000);
+	if (typeof value === 'number') {
+		if (value.toString().length === 10) {
+			// Handle Unix timestamp (seconds) by converting to milliseconds
+			date = new Date(value * 1000);
+		}
+		else if (value.toString().length === 13) {
+			// Timestamp including milliseconds
+			date = new Date(value);
+		}
+		else {
+			// Unsupported timestamp formats
+			return value;
+		}
 	} else if (typeof value === 'string') {
 		if (iso8601Regex.test(value)) {
 			// Handle ISO 8601 format

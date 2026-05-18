@@ -1,37 +1,75 @@
 import { CredentialParsingError } from "../error";
 import { Context, CredentialParser, HttpClient, CredentialIssuerInfo } from "../interfaces";
-import { DataItem, DeviceSignedDocument, parse } from "@auth0/mdl";
+import { cborDecode, DeviceResponse, IssuerSigned } from "@owf/mdoc";
+import { X509Certificate } from "@peculiar/x509";
 import { fromBase64Url } from "../utils/util";
-import { CredentialClaimPath, CredentialFriendlyNameCallback, ImageDataUriCallback, ParsedCredential, VerifiableCredentialFormat, TypeMetadata } from "../types";
-import { cborDecode, cborEncode } from "@auth0/mdl/lib/cbor";
-import { IssuerSigned } from "@auth0/mdl/lib/mdoc/model/types";
-import { OpenID4VCICredentialRendering } from "../functions/openID4VCICredentialRendering";
+import { FriendlyNameCallback, ImageDataUriCallback, ParsedCredential, VerifiableCredentialFormat, TypeMetadataResult } from "../types";
+import { CustomCredentialSvg } from "../functions/CustomCredentialSvg";
 import { getIssuerMetadata } from "../utils/getIssuerMetadata";
 import { convertOpenid4vciToSdjwtvcClaims } from "../functions/convertOpenid4vciToSdjwtvcClaims";
-import { matchDisplayByLocale } from '../utils/matchLocalizedDisplay';
 import type { z } from "zod";
 import { OpenidCredentialIssuerMetadataSchema, } from "../schemas";
+import { dataUriResolver } from "../resolvers/dataUriResolver";
+import { friendlyNameResolver } from "../resolvers/friendlyNameResolver";
 
 type IssuerMetadata = z.infer<typeof OpenidCredentialIssuerMetadataSchema>;
 
 export function MsoMdocParser(args: { context: Context, httpClient: HttpClient }): CredentialParser {
 
-	function extractValidityInfo(issuerSigned: IssuerSigned): { validUntil?: Date, validFrom?: Date, signed?: Date } {
-		return issuerSigned.issuerAuth.decodedPayload.validityInfo;
+	function looksLikeCborMap(raw: unknown): raw is string {
+		if (typeof raw !== "string") return false;
+
+		let bytes: Uint8Array;
+		try {
+			bytes = fromBase64Url(raw);
+		} catch {
+			return false;
+		}
+		if (bytes.length === 0) return false;
+
+		const first = bytes[0];
+
+		// CBOR major type 5 = map.
+		// Definite maps: 0xA0..0xBB
+		// Indefinite map: 0xBF
+		// 0xBC..0xBE are reserved/invalid.
+		return (first >= 0xA0 && first <= 0xBB) || first === 0xBF;
 	}
 
-	function collectAllAttrValues(parsedDocument: DeviceSignedDocument): Record<string, unknown> {
-		return parsedDocument.issuerSignedNameSpaces.reduce<Record<string, unknown>>((acc, ns) => {
-			acc[ns] = parsedDocument.getIssuerNameSpace(ns);
+	function extractValidityInfo(issuerSigned: IssuerSigned): { validUntil?: Date, validFrom?: Date, signed?: Date } {
+		const validityInfo = issuerSigned.issuerAuth.mobileSecurityObject.validityInfo;
+		return {
+			signed: validityInfo.signed,
+			validFrom: validityInfo.validFrom,
+			validUntil: validityInfo.validUntil,
+		};
+	}
+
+	function collectAllAttrValues(issuerSigned: IssuerSigned): Record<string, unknown> {
+		const issuerNamespaces = issuerSigned.issuerNamespaces?.issuerNamespaces ?? new Map();
+		return Array.from(issuerNamespaces.entries()).reduce<Record<string, unknown>>((acc, [ns, items]) => {
+			acc[ns] = items.reduce<Record<string, unknown>>((nsAcc, item) => {
+				nsAcc[item.elementIdentifier] = item.elementValue;
+				return nsAcc;
+			}, {});
 			return acc;
 		}, {});
 	}
 
+	function extractIssuerName(issuerSigned: IssuerSigned): string {
+		try {
+			const certificateBytes = new Uint8Array(issuerSigned.issuerAuth.certificate);
+			return new X509Certificate(certificateBytes).issuerName.toString();
+		} catch {
+			return "Unknown issuer";
+		}
+	}
+
 	async function fetchIssuerMetadataAndDocs(
 		credentialIssuer?: CredentialIssuerInfo | null
-	): Promise<{ issuerMetadata: IssuerMetadata | null; TypeMetadata: TypeMetadata }> {
+	): Promise<{ issuerMetadata: IssuerMetadata | null; TypeMetadata: TypeMetadataResult }> {
 		let issuerMetadata: IssuerMetadata | null = null;
-		let TypeMetadata: TypeMetadata = {};
+		let TypeMetadata: TypeMetadataResult = {};
 
 		try {
 			if (credentialIssuer?.credentialIssuerIdentifier) {
@@ -39,7 +77,7 @@ export function MsoMdocParser(args: { context: Context, httpClient: HttpClient }
 				issuerMetadata = metadata ?? null;
 
 				const issuerClaimsArray = credentialIssuer?.credentialConfigurationId
-					? issuerMetadata?.credential_configurations_supported?.[credentialIssuer.credentialConfigurationId]?.claims
+					? issuerMetadata?.credential_configurations_supported?.[credentialIssuer.credentialConfigurationId]?.credential_metadata?.claims
 					: undefined;
 
 				const convertedClaims = issuerClaimsArray ? convertOpenid4vciToSdjwtvcClaims(issuerClaimsArray) : undefined;
@@ -54,69 +92,32 @@ export function MsoMdocParser(args: { context: Context, httpClient: HttpClient }
 		return { issuerMetadata, TypeMetadata };
 	}
 
-	function makeCredentialFriendlyName(
-		issuerMetadata: IssuerMetadata | null,
-		credentialIssuer?: CredentialIssuerInfo | null
-	): CredentialFriendlyNameCallback {
-		return async (preferredLangs: string[] = ["en-US"]): Promise<string | null> => {
-			const issuerDisplayArray = credentialIssuer?.credentialConfigurationId
-				? issuerMetadata?.credential_configurations_supported?.[credentialIssuer.credentialConfigurationId]?.display
-				: undefined;
-
-			const issuerDisplayLocalized = matchDisplayByLocale(issuerDisplayArray, preferredLangs);
-			if (issuerDisplayLocalized?.name) return issuerDisplayLocalized.name;
-
-			return "mdoc Verifiable Credential";
-		};
-	}
-
-	function makeDataUri(
-		renderer: ReturnType<typeof OpenID4VCICredentialRendering>,
-		signedClaims: Record<string, unknown>,
-		issuerMetadata: IssuerMetadata | null,
-		credentialIssuer?: CredentialIssuerInfo | null
-	): ImageDataUriCallback {
-		const mdocDisplayConfig = { name: "mdoc Verifiable Credential" };
-		return async (filter?: Array<CredentialClaimPath>, preferredLangs: string[] = ["en-US"]) => {
-			try {
-
-				const issuerDisplayArray = credentialIssuer?.credentialConfigurationId
-					? issuerMetadata?.credential_configurations_supported?.[credentialIssuer.credentialConfigurationId]?.display
-					: undefined;
-
-				const issuerDisplayLocalized = matchDisplayByLocale(issuerDisplayArray, preferredLangs);
-
-				return await renderer.renderCustomSvgTemplate({ signedClaims, displayConfig: issuerDisplayLocalized ?? mdocDisplayConfig });
-			} catch (err) {
-				console.error(err);
-				return null;
-			}
-		};
-	}
-
 	function toParsedCredential(
-		parsedDocument: DeviceSignedDocument,
+		docType: string,
+		issuerSigned: IssuerSigned,
 		signedClaims: Record<string, unknown>,
-		TypeMetadata: TypeMetadata,
-		credentialFriendlyName: CredentialFriendlyNameCallback,
+		TypeMetadata: TypeMetadataResult,
+		friendlyName: FriendlyNameCallback,
 		dataUri: ImageDataUriCallback
 	): ParsedCredential {
+		const issuerName = extractIssuerName(issuerSigned);
+
 		return {
 			metadata: {
 				credential: {
 					format: VerifiableCredentialFormat.MSO_MDOC,
-					doctype: parsedDocument.docType,
+					doctype: docType,
 					TypeMetadata,
 					image: { dataUri },
-					name: credentialFriendlyName
+					name: friendlyName
 				},
 				issuer: {
-					id: parsedDocument.issuerSigned.issuerAuth.certificate.issuer,
-					name: parsedDocument.issuerSigned.issuerAuth.certificate.issuer
+					id: issuerName,
+					name: issuerName
 				}
 			},
 			signedClaims: { ...signedClaims },
-			validityInfo: { ...extractValidityInfo(parsedDocument.issuerSigned) }
+			validityInfo: { ...extractValidityInfo(issuerSigned) }
 		};
 	}
 
@@ -126,17 +127,31 @@ export function MsoMdocParser(args: { context: Context, httpClient: HttpClient }
 	): Promise<ParsedCredential | null> {
 		try {
 			const decodedCred = fromBase64Url(rawCredential);
-			const parsedMDOC = parse(decodedCred);
-			const [parsedDocument] = parsedMDOC.documents as DeviceSignedDocument[];
+			const parsedMDOC = DeviceResponse.decode(decodedCred);
+			const [parsedDocument] = parsedMDOC.documents ?? [];
+			if (!parsedDocument) return null;
 
-			const signedClaims = collectAllAttrValues(parsedDocument);
-			const renderer = OpenID4VCICredentialRendering({ httpClient: args.httpClient });
+			const signedClaims = collectAllAttrValues(parsedDocument.issuerSigned);
+			const renderer = CustomCredentialSvg({ httpClient: args.httpClient });
 			const { issuerMetadata, TypeMetadata } = await fetchIssuerMetadataAndDocs(credentialIssuer);
 
-			const credentialFriendlyName = makeCredentialFriendlyName(issuerMetadata, credentialIssuer);
-			const dataUri = makeDataUri(renderer, {}, issuerMetadata, credentialIssuer);
+			const issuerDisplayArray = credentialIssuer?.credentialConfigurationId
+				? issuerMetadata?.credential_configurations_supported?.[credentialIssuer.credentialConfigurationId]?.credential_metadata?.display
+				: undefined;
 
-			return toParsedCredential(parsedDocument, signedClaims, TypeMetadata, credentialFriendlyName, dataUri);
+			const friendlyName = friendlyNameResolver({
+				issuerDisplayArray,
+				fallbackName: "mdoc Verifiable Credential",
+			});
+
+			const dataUri = dataUriResolver({
+				httpClient: args.httpClient,
+				customRenderer: renderer,
+				issuerDisplayArray,
+				fallbackName: "mdoc Verifiable Credential",
+			});
+
+			return toParsedCredential(parsedDocument.docType, parsedDocument.issuerSigned, signedClaims, TypeMetadata, friendlyName, dataUri);
 		} catch {
 			return null;
 		}
@@ -148,30 +163,30 @@ export function MsoMdocParser(args: { context: Context, httpClient: HttpClient }
 	): Promise<ParsedCredential | null> {
 		try {
 			const credentialBytes = fromBase64Url(rawCredential);
-			const issuerSigned: Map<string, unknown> = cborDecode(credentialBytes);
-			const [header, _, payload, sig] = issuerSigned.get('issuerAuth') as Array<Uint8Array>;
-			const decodedIssuerAuthPayload: DataItem = cborDecode(payload);
-			const docType = decodedIssuerAuthPayload.data.get('docType');
-			const m = {
-				version: '1.0',
-				documents: [new Map([
-					['docType', docType],
-					['issuerSigned', issuerSigned]
-				])],
-				status: 0
-			};
-			const encoded = cborEncode(m);
-			const mdoc = parse(encoded);
-			const [parsedDocument] = mdoc.documents as DeviceSignedDocument[];
+			const issuerSigned = IssuerSigned.decode(credentialBytes);
+			const docType = issuerSigned.issuerAuth.mobileSecurityObject.docType;
 
-			const signedClaims = collectAllAttrValues(parsedDocument);
-			const renderer = OpenID4VCICredentialRendering({ httpClient: args.httpClient });
+			const signedClaims = collectAllAttrValues(issuerSigned);
+			const renderer = CustomCredentialSvg({ httpClient: args.httpClient });
 			const { issuerMetadata, TypeMetadata } = await fetchIssuerMetadataAndDocs(credentialIssuer);
 
-			const credentialFriendlyName = makeCredentialFriendlyName(issuerMetadata, credentialIssuer);
-			const dataUri = makeDataUri(renderer, {}, issuerMetadata, credentialIssuer);
+			const issuerDisplayArray = credentialIssuer?.credentialConfigurationId
+				? issuerMetadata?.credential_configurations_supported?.[credentialIssuer.credentialConfigurationId]?.credential_metadata?.display
+				: undefined;
 
-			return toParsedCredential(parsedDocument, signedClaims, TypeMetadata, credentialFriendlyName, dataUri);
+			const friendlyName = friendlyNameResolver({
+				issuerDisplayArray,
+				fallbackName: "mdoc Verifiable Credential",
+			});
+
+			const dataUri = dataUriResolver({
+				httpClient: args.httpClient,
+				customRenderer: renderer,
+				issuerDisplayArray,
+				fallbackName: "mdoc Verifiable Credential",
+			});
+
+			return toParsedCredential(docType, issuerSigned, signedClaims, TypeMetadata, friendlyName, dataUri);
 		} catch {
 			return null;
 		}
@@ -179,12 +194,11 @@ export function MsoMdocParser(args: { context: Context, httpClient: HttpClient }
 
 	return {
 		async parse({ rawCredential, credentialIssuer }) {
-
-			if (typeof rawCredential != 'string') {
+			if (!looksLikeCborMap(rawCredential)) {
 				return {
 					success: false,
-					error: CredentialParsingError.InvalidDatatype,
-				}
+					error: CredentialParsingError.UnsupportedFormat,
+				};
 			}
 
 			const deviceResponseParsingResult = await deviceResponseParser(rawCredential, credentialIssuer ?? null);

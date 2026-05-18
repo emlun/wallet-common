@@ -1,4 +1,8 @@
+import "reflect-metadata";
+
 export * from './rendering';
+
+export * from './defaultHttpClient';
 
 export * from './ParsingEngine';
 export * from './credential-parsers/SDJWTVCParser';
@@ -17,3 +21,13 @@ export * from './schemas';
 export * from './utils';
 
 export * from './functions';
+
+export * from './resolvers';
+
+export * from './core';
+
+export * from './protocols';
+
+export * from './types';
+
+export * from './error';

@@ -1,10 +1,19 @@
 import { CredentialParsingError } from "./error";
-import { ClaimMetadataEntry } from "./schemas/SdJwtVcTypeMetadataSchema";
+import type { ClaimMetadataEntry, SvgTemplateProperties } from "./schemas/SdJwtVcTypeMetadataSchema";
 
 export enum VerifiableCredentialFormat {
 	VC_SDJWT = "vc+sd-jwt",
 	DC_SDJWT = "dc+sd-jwt",
 	MSO_MDOC = "mso_mdoc",
+	JWT_VC_JSON = "jwt_vc_json"
+}
+
+export enum HashAlgorithm {
+	sha_256 = "sha-256"
+}
+
+export enum DigestHashAlgorithm {
+	SHA_256 = "SHA-256"
 }
 
 export type CredentialIssuer = {
@@ -16,7 +25,7 @@ export type CredentialIssuer = {
 
 export type CredentialClaims = Record<string, unknown>;
 
-export type Result<T, E> = { success: true; value: T } | { success: false; error: E };
+export type CustomResult<T, E> = { success: true; value: T } | { success: false; error: E };
 
 export type ParserResult =
 	| { success: true; value: ParsedCredential }
@@ -38,13 +47,14 @@ export type MetadataWarning = {
 
 export type CredentialClaimPath = Array<string>;
 
-export type CredentialFriendlyNameCallback = (
+export type FriendlyNameCallback = (
 	preferredLangs?: string[]
 ) => Promise<string | null>;
 
 export type ImageDataUriCallback = (
 	filter?: Array<CredentialClaimPath>,
-	preferredLangs?: string[]
+	preferredLangs?: string[],
+	svgPreference?: SvgTemplateProperties
 ) => Promise<string | null>;
 
 
@@ -52,7 +62,7 @@ export type AugmentedClaimMetadataEntry = ClaimMetadataEntry & {
 	required?: boolean;
 };
 
-export type TypeMetadata = {
+export type TypeMetadataResult = {
 	claims?: Array<AugmentedClaimMetadataEntry>;
 };
 
@@ -61,16 +71,16 @@ export type ParsedCredential = {
 		credential: {
 			format: VerifiableCredentialFormat.VC_SDJWT | VerifiableCredentialFormat.DC_SDJWT,
 			vct: string,
-			name: CredentialFriendlyNameCallback,
-			TypeMetadata: TypeMetadata,
+			name: FriendlyNameCallback,
+			TypeMetadata: TypeMetadataResult,
 			image: {
 				dataUri: ImageDataUriCallback,
 			},
 		} | {
 			format: VerifiableCredentialFormat.MSO_MDOC,
 			doctype: string,
-			name: CredentialFriendlyNameCallback,
-			TypeMetadata: TypeMetadata,
+			name: FriendlyNameCallback,
+			TypeMetadata: TypeMetadataResult,
 			image: {
 				dataUri: ImageDataUriCallback,
 			},

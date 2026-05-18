@@ -1,9 +1,9 @@
-import { HttpClient, OpenID4VCICredentialRendering } from "../interfaces";
+import { HttpClient, CustomCredentialSvgI } from "../interfaces";
 import { CredentialClaims } from "../types";
 import { escapeSVG } from "../utils/escapeSVG";
 import { formatDate } from "./formatDate";
 
-export function OpenID4VCICredentialRendering(args: { httpClient: HttpClient }): OpenID4VCICredentialRendering {
+export function CustomCredentialSvg(args: { httpClient: HttpClient }): CustomCredentialSvgI {
 
 	const defaultBackgroundColor = "#D3D3D3";
 	const defaultTextColor = "#000000";
@@ -37,12 +37,18 @@ export function OpenID4VCICredentialRendering(args: { httpClient: HttpClient }):
 		if (!url) return null;
 
 		try {
+			const response = await args.httpClient.get(url, {}, { responseType: 'arraybuffer', useCache: true });
+			const mimeType = String(response.headers["content-type"] || "application/octet-stream");
 			const isBrowser = typeof window !== "undefined";
 
 			if (isBrowser) {
-				// Frontend: Use FileReader with Fetch API
-				const response = await fetch(url);
-				const blob = await response.blob();
+				if (typeof response.data === "string" && response.data.startsWith("data:")) {
+					return response.data;
+				}
+
+				const blob = typeof response.data === "string"
+					? await fetch(response.data).then((res) => res.blob())
+					: new Blob([response.data as BlobPart], { type: mimeType });
 
 				return new Promise<string | null>((resolve, reject) => {
 					const reader = new FileReader();
@@ -51,11 +57,8 @@ export function OpenID4VCICredentialRendering(args: { httpClient: HttpClient }):
 					reader.readAsDataURL(blob);
 				});
 			} else {
-				// Backend (Node.js): Use Axios or Fetch with Buffer
-				const response = await args.httpClient.get(url, {}, { responseType: 'arraybuffer', useCache: true })
 				const blob = response.data as any;
 				const base64 = Buffer.from(blob, "binary").toString("base64");
-				const mimeType = response.headers["content-type"]; // Get MIME type
 				return `data:${mimeType};base64,${base64}`;
 			}
 		} catch (error) {
@@ -68,7 +71,7 @@ export function OpenID4VCICredentialRendering(args: { httpClient: HttpClient }):
 	const renderCustomSvgTemplate = async ({ signedClaims, displayConfig }: { signedClaims: CredentialClaims, displayConfig: any }) => {
 		const name =  displayConfig?.name ? escapeSVG(displayConfig?.name) : defaultName;
 		const description = displayConfig?.description ? escapeSVG(displayConfig?.description) : "";
-		const backgroundColor = displayConfig.backgroundColor || defaultBackgroundColor;
+		const backgroundColor = displayConfig.background_color || defaultBackgroundColor;
 		const textColor = displayConfig.text_color || defaultTextColor;
 		const backgroundImageBase64 = displayConfig?.background_image?.uri ?
 			displayConfig?.background_image?.uri?.startsWith("data:") ?

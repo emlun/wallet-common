@@ -3,6 +3,7 @@ import { OpenidCredentialIssuerMetadataSchema } from "../schemas";
 import type { HttpClient } from "../interfaces";
 import { MetadataWarning } from "../types";
 import { CredentialParsingError } from "../error";
+import { prependToPath } from "./urlPathUtils";
 
 export async function getIssuerMetadata(
 	httpClient: HttpClient,
@@ -12,12 +13,14 @@ export async function getIssuerMetadata(
 ): Promise<{
 	metadata: z.infer<typeof OpenidCredentialIssuerMetadataSchema> | null;
 }> {
-	const url = `${issuer}/.well-known/openid-credential-issuer`;
+	if (!issuer) return { metadata: null };
+
+	const url = prependToPath(issuer, ".well-known/openid-credential-issuer");
+	if (!url) return { metadata: null };
 
 	let issuerResponse = null;
-
 	try {
-		issuerResponse = await httpClient.get(url, {}, { useCache });
+		issuerResponse = await httpClient.get(url, {"Accept": "application/json"}, { useCache });
 	} catch (err) {
 		warnings.push({
 			code: CredentialParsingError.FailFetchIssuerMetadata,
@@ -33,7 +36,6 @@ export async function getIssuerMetadata(
 	}
 
 	const parsed = OpenidCredentialIssuerMetadataSchema.safeParse(issuerResponse.data);
-
 	if (!parsed.success) {
 		warnings.push({
 			code: CredentialParsingError.FailSchemaIssuerMetadata,
@@ -43,4 +45,3 @@ export async function getIssuerMetadata(
 
 	return { metadata: parsed.data };
 }
-
