@@ -723,7 +723,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			return pk.add(H0.multiply(r_key));
 		}
 
-		function schnorr_adapt_sig(sig: SchnorrNizkProof1, r_key: bigint, m: BufferSource): [bigint, bigint] {
+		function schnorr_adapt_sig(sig: SchnorrNizkProof1, r_key: bigint, _m: BufferSource): [bigint, bigint] {
 			const [c, s] = sig;
 			return [c, (s + c * r_key) % Fr.ORDER];
 		}
@@ -919,7 +919,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 		/** ShowSE1 procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
 		function show_se_1(
-			ipk: PointG2,
+			_ipk: PointG2,
 			dsk: bigint,
 			umsg: PointG1,
 			ctx: BufferSource,
@@ -933,7 +933,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			ust: BbsSchnorrUst,
 			smsg: BufferSource,
 		): Promise<[PointG1, SchnorrNizkProof1, PointG1, PointG1, PointG1, SchnorrNizkProof]> {
-			const [ipk, dpk, dpkbar, r_key, sigma, attrs, ctx, disclose_idx, ikm] = ust;
+			const [_ipk, dpk, dpkbar, r_key, sigma, attrs, ctx, disclose_idx, ikm] = ust;
 			const non_disclose_idx = range(l).filter(i => !disclose_idx.includes(i));
 			const pi_se = schnorr_adapt_sig(schnorr_parse_signature(smsg), r_key, serialize([dpkbar, ctx]));
 			const [A, e] = sigma;
