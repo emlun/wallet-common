@@ -14,10 +14,14 @@ export function toHex(b: BufferSource): string {
 export const HEX_ERR_LENGTH_ODD = 'LENGTH_ODD';
 export const HEX_ERR_INVALID_DIGITS = 'INVALID_DIGITS';
 
+/**
+	Parse hex-encoded ([0-9a-fA-F]) binary data from `hex`,
+	ignoring all spaces, tabs and newlines (including CRLF).
+*/
 export function fromHex(hex: string): Uint8Array {
 	/* eslint-disable no-bitwise */
 
-	const normalized = hex.replaceAll(' ', '');
+	const normalized = hex.replaceAll(/[ \t\n]/g, '');
 
 	if (normalized.length % 2 !== 0) {
 		throw Error(`Invalid hex string: ${hex}`, { cause: HEX_ERR_LENGTH_ODD });

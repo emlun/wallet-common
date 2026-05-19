@@ -19,4 +19,25 @@ describe("fromHex", () => {
 		const data = fromHex("aa bb cc");
 		assert.equal(toHex(data), "aabbcc");
 	});
+
+	it("ignores newlines.", async () => {
+		const data = fromHex(`
+a
+bb
+ccc`);
+		assert.equal(toHex(data), "abbccc");
+	});
+
+	it("ignores CRLF newlines.", async () => {
+		const data = fromHex(`
+a
+bb
+ccc`);
+		assert.equal(toHex(data), "abbccc");
+	});
+
+	it("ignores tabs.", async () => {
+		const data = fromHex("aa	bb	cc");
+		assert.equal(toHex(data), "aabbcc");
+	});
 });
