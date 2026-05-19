@@ -1,7 +1,7 @@
 /** Implementation of https://datatracker.ietf.org/doc/draft-irtf-cfrg-bbs-signatures/08/ */
 
-import { Fp2 } from "@noble/curves/abstract/tower";
-import { BlsCurvePair } from "@noble/curves/abstract/bls";
+import type { BlsCurvePair } from "@noble/curves/abstract/bls";
+import type { Fp2 } from "@noble/curves/abstract/tower";
 import { bls12_381 } from "@noble/curves/bls12-381.js";
 
 import { concat, fromHex, I2OSP, OS2IP, toHex, toU8 } from "../utils/util";
