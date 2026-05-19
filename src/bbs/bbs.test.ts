@@ -2,7 +2,7 @@ import { assert, describe, it } from "vitest";
 
 import { concat, fromHex, toHex, toU8 } from "../utils/util";
 import { asyncAssertThrows } from "../testutil";
-import { getCipherSuite } from ".";
+import { getCipherSuite, PointG1 } from ".";
 
 
 describe("Suite:", () => {
@@ -457,7 +457,7 @@ describe("Suite:", () => {
 		});
 
 		describe("BBS-Schnorr", async () => {
-			const { BbsSchnorr } = getCipherSuite(suiteId);
+			const { BbsSchnorr, params: { curves: { G1 } } } = getCipherSuite(suiteId);
 
 			it("works.", async () => {
 				const { iss_kgen, dev_kgen, issue, verify, vf_cred, show_user_1, show_se_1, show_user_2 } = await BbsSchnorr(3);
@@ -485,6 +485,59 @@ describe("Suite:", () => {
 				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, Worldz!"), [1], [2n], tau), "Expected incorrect ctx to fail verification");
 				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, World!"), [0, 1], [1n, 2n], tau), "Expected disclosed-and-undisclosed attribute to fail verification");
 				asyncAssertThrows(() => verify(ipk.multiply(2), new TextEncoder().encode("Hello, World!"), [1], [2n], tau), "Expected incorrect issuer public key to fail verification");
+			});
+
+			it("works with a SE proof recorded from a hardware device.", async () => {
+				const { iss_kgen, issue, verify, vf_cred, show_user_1, show_user_2, schnorr_verify_sha256_encoded } = await BbsSchnorr(3);
+
+				const ikm = new TextEncoder().encode("Test BBS-Schnorr with hardware device");
+
+				const [isk, ipk] = await iss_kgen(ikm);
+				console.log({ isk });
+				console.log({ ipk });
+				const dpk_rfc8235: PointG1 = G1.Point.fromAffine({
+					x: BigInt("0x044a9ff85f9756e8740779c8ecd876136770a4e7979717fad0997066253c1e8b981be71df0529cdcdde5c86139d26aeb"),
+					y: BigInt("0x097010bc6b60c5816bc8de34726a44b40e3ec0e17f680e0b62e261084ca8cb2bfe2b231a3e1bb9e51a8c5f1cea7d6a9f"),
+				});
+
+				// RFC 8235 computes the public key as `A = G x [a]` with generator G and secret key a,
+				// and the signature as `r = v - a*c` with random nonce v, and challenge hash c,
+				// and therefore the verification checks the identity `V = G x [r] + A x [c]` with `V = G x [v]`.
+				// In https://eprint.iacr.org/2025/1995.pdf the Schnorr signature scheme is written with
+				// public key still `pk = sk*H0` with secret key sk and generator H0,
+				// but signature as `s = ω + c*sk` with nonce ω,
+				// and therefore verification instead checks the identity `R = s*H0 - c*pk` with `R = ω*H0`.
+				// Note the flipped signs between signature formulations.
+				// Luckily, the two are compatible and can be translated between by simply negating the public key.
+				// Identifying `s' = r = v - a*c = ω - c*sk` and `pk = -A = G x [-a] = (-sk)*H0` we get:
+				// `R = s'*H0 - c*(-pk) = (ω*H0 - c*sk*H0) - c*pk = (ω*H0 - c*sk*H0) - c*(-sk)*H0 = ω*H0 - c*sk*H0 + c*sk*H0 = ω*H0`
+				// so the verification identity `R = s*H0 - c*pk` holds for the signature `r = v - a*c` if the public key is negated.
+				const dpk = dpk_rfc8235.negate();
+
+				const attrs = [1n, 2n, 3n];
+				const sigma = await issue(isk, dpk, attrs, ikm);
+				console.log({ sigma });
+
+				assert(vf_cred(ipk, sigma, dpk, attrs));
+
+				const ctx = new TextEncoder().encode("Hello, World!");
+				const [ust, umsg] = await show_user_1(ipk, dpk, sigma, attrs, ctx, [1], ikm);
+				const tbs = concat(umsg.toBytes(), ctx);
+				console.log(`tbs = bytes.fromhex("${toHex(tbs)}")`);
+				// assert.fail("Continue in python");
+
+				const smsg = fromHex(
+					"034f583937c54d184be8db0c0dde0ada37560aa0363d55233e8b102ac74b28f1" +
+					"58757d2a585de4d2b72bdbd83e04683ea18837d0c9e1f58d753f4b15d9306176");
+
+				// Non-negated public key with verification equation [r]G+[c]A
+				// assert(dpk_rfc8235.verify(tbs, smsg));
+				// Negated public key with verification equation s*H0-c*pk
+				assert(await schnorr_verify_sha256_encoded(dpk, smsg, tbs));
+
+				const tau = await show_user_2(ust, smsg);
+
+				assert(await verify(ipk, ctx, [1], [2n], tau));
 			});
 		});
 	});
