@@ -523,20 +523,13 @@ describe("Suite:", () => {
 				const ctx = new TextEncoder().encode("Hello, World!");
 				const [ust, umsg] = await show_user_1(ipk, dpk, sigma, attrs, ctx, [1], ikm);
 				const tbs = concat(umsg.toBytes(), ctx);
-				console.log(`tbs = bytes.fromhex("${toHex(tbs)}")`);
-				// assert.fail("Continue in python");
 
 				const smsg = fromHex(
-					"034f583937c54d184be8db0c0dde0ada37560aa0363d55233e8b102ac74b28f1" +
-					"58757d2a585de4d2b72bdbd83e04683ea18837d0c9e1f58d753f4b15d9306176");
-
-				// Non-negated public key with verification equation [r]G+[c]A
-				// assert(dpk_rfc8235.verify(tbs, smsg));
-				// Negated public key with verification equation s*H0-c*pk
+					"6f74d77fd5dad76071f68a0a868e08a7588a6635f4d6d58d2e4d0363cf0548c2" +
+					"7036172d060b8982afef19dc51f0b0c26a255e3c5aa5dc70e0479dedb1d9cb01");
 				assert(await schnorr_verify_sha256_encoded(dpk, smsg, tbs));
 
 				const tau = await show_user_2(ust, smsg);
-
 				assert(await verify(ipk, ctx, [1], [2n], tau));
 			});
 		});
