@@ -522,6 +522,13 @@ describe("Suite:", () => {
 				const [ust, umsg] = await show_user_1(ipk, dpk, sigma, attrs, ctx, [1], ikm);
 				const tbs = concat(umsg.toBytes(), ctx);
 
+				// This Schnorr signature [Section 3.2 of RFC 8235][1] uses the following construction:
+				// - The random nonce scalar is `v`.
+				// - The challenge `c` is `c = SHA-256(ECP2OS(V) || msg)`.
+				// - `V = G x [v]` as defined in [Section 3.2 of RFC 8235][1].
+				// - `ECP2OS` is the Elliptic-Curve-Point-to-Octet-String Conversion defined in [Section 2.3.3 of SEC 1][2], without compression.
+				// - The encoded signature is `OS2IP(r, 32) || OS2IP(c, 32)`.
+				// [1]: https://www.rfc-editor.org/rfc/rfc8235.html#section-3.2
 				const smsg = fromHex(
 					"6f74d77fd5dad76071f68a0a868e08a7588a6635f4d6d58d2e4d0363cf0548c2" +
 					"7036172d060b8982afef19dc51f0b0c26a255e3c5aa5dc70e0479dedb1d9cb01");
