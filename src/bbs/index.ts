@@ -37,6 +37,14 @@ function createSuite(suite: SuiteParams): CipherSuite {
 	const { expand_message, prime_subgroup_order } = suite.hash_to_curve_suite.suiteParams;
 	const api_id = new TextEncoder().encode(suite.id + "H2G_HM2S_");
 
+	function isG1(p: PointG1 | PointG2): p is PointG1 {
+		return p instanceof G1.Point;
+	}
+
+	function isG2(p: PointG1 | PointG2): p is PointG2 {
+		return p instanceof G2.Point;
+	}
+
 	function sum(points: PointG1[]): PointG1 {
 		return points.reduce((sum, P) => sum.add(P), G1.Point.ZERO);
 	}
@@ -181,8 +189,11 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				case 'object':
 					if (el instanceof ArrayBuffer || ArrayBuffer.isView(el)) {
 						return toU8(el);
+					} else if (isG1(el)) {
+						return point_to_octets_E1(el);
+					} else if (isG2(el)) {
+						return point_to_octets_E2(el);
 					}
-					return el.toBytes();
 
 				default:
 					throw new Error(`Invalid type of value: ${el}`, { cause: { el } });
