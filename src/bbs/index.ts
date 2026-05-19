@@ -1118,7 +1118,7 @@ export function getCipherSuite(
 					(bls12_381.G1.hashToCurve(toU8(msg), { DST: toU8(DST) }) as PointG1),
 				expand_len: 48,
 				curves: bls12_381,
-				P1: bls12_381.G1.Point.fromBytes(toU8(fromHex("a8ce256102840821a3e94ea9025e4662b205762f9776b3a766c872b948f1fd225e7c59698588e70d11406d161b4e28c9"))),
+				P1: bls12_381.G1.Point.fromBytes(fromHex("a8ce256102840821a3e94ea9025e4662b205762f9776b3a766c872b948f1fd225e7c59698588e70d11406d161b4e28c9")),
 				create_generators_dsts: overrides?.create_generators_dsts,
 				mocked_random_scalars_params: overrides?.mocked_random_scalars_params,
 			});
