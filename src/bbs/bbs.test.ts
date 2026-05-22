@@ -520,7 +520,7 @@ describe("Suite:", () => {
 				const [ust, umsg] = await show_user_1(ipk, dpk, sigma, attrs, ctx, [1], ikm);
 				const tbs = concat(umsg.toBytes(), ctx);
 
-				// This Schnorr signature [Section 3.2 of RFC 8235][1] uses the following construction:
+				// This Schnorr signature uses the following construction:
 				// - The random nonce scalar is `v`.
 				// - The challenge `c` is `c = SHA-256(point_to_octets_E1(V) || msg)`.
 				// - `V = G x [v]` as defined in [Section 3.2 of RFC 8235][1].
