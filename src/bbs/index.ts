@@ -201,11 +201,6 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		}));
 	}
 
-	function to_sec1_uncompressed(p: PointG1): ArrayBuffer {
-		const { x, y } = p.toAffine();
-		return serialize([new Uint8Array([0x04]), I2OSP(x, octet_point_length), I2OSP(y, octet_point_length)]);
-	}
-
 	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-signature-to-octets */
 	function signature_to_octets(A: PointG1, e: bigint): BufferSource {
 		return serialize([A, e]);
@@ -698,7 +693,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			while (true) {
 				const omega = await sample_scalar(new TextEncoder().encode("Schnorr.Sign"));
 				const r = H0.multiply(omega);
-				const c = OS2IP(await sha256(serialize([to_sec1_uncompressed(r), m])));
+				const c = OS2IP(await sha256(serialize([r, m])));
 				if (c < Fr.ORDER) {
 					const s = (omega + c * sk) % Fr.ORDER;
 					return [c, s];
@@ -713,7 +708,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		/** Verify using SHA-256 as the hash function H, rejecting is the hash is greater than the group order. */
 		async function schnorr_verify_sha256(pk: PointG1, sig: SchnorrNizkProof1, m: BufferSource): Promise<true> {
 			const [c, s] = sig;
-			const c2 = OS2IP(await sha256(serialize([to_sec1_uncompressed(H0.multiply(s).subtract(pk.multiply(c))), m])));
+			const c2 = OS2IP(await sha256(serialize([H0.multiply(s).subtract(pk.multiply(c)), m])));
 			if (c2 < Fr.ORDER && c == c2) {
 				return true;
 			}
