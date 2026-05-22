@@ -524,7 +524,7 @@ describe("Suite:", () => {
 				// - The random nonce scalar is `v`.
 				// - The challenge `c` is `c = SHA-256(point_to_octets_E1(V) || msg)`.
 				// - `V = G x [v]` as defined in [Section 3.2 of RFC 8235][1].
-				// - `point_to_octets_E1` is defined in the BBS ciphersuite BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_ [2].
+				// - `point_to_octets_E1` is defined in BBS ciphersuite BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_ [2].
 				// - The encoded signature is `OS2IP(r, 32) || OS2IP(c, 32)`.
 				// [1]: https://www.rfc-editor.org/rfc/rfc8235.html#section-3.2
 				// [2]: https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-10.html#name-bls12-381-sha-256
