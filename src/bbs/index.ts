@@ -655,11 +655,11 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		return await hash_to_scalar(c_octs, hash_to_scalar_dst);
 	}
 
-	async function BbsSchnorr(l: number): Promise<BbsSchnorrSuite> {
+
+	async function BbsSchnorr({ l, dpk_uses_h1 }: BbsSchnorrOptions): Promise<BbsSchnorrSuite> {
 		// Domain(Q), dpk (H0), attributes (Hi)
 		const generators = (await create_generators(1 + 1 + l, api_id));
-		// const H0 = generators[1];
-		const H0 = G1.Point.BASE; // TODO: Replace with H0 from create_generators
+		const H0 = dpk_uses_h1 ? generators[1] : G1.Point.BASE;
 		const Hi = generators.slice(2);
 
 		function or_rand(ikm: BufferSource | undefined, L: number): BufferSource {
@@ -1054,6 +1054,10 @@ type BbsSchnorrProof = [
 	SchnorrNizkProof,
 ];
 
+export type BbsSchnorrOptions = {
+	l: number,
+	dpk_uses_h1?: boolean,
+}
 export type BbsSchnorrSuite = {
 	iss_kgen(ikm?: BufferSource): Promise<[bigint, PointG2]>,
 	dev_kgen(ikm?: BufferSource): Promise<[bigint, PointG1]>,
@@ -1097,7 +1101,7 @@ type CipherSuite = {
 	Verify: VerifyFunction,
 	ProofGen: ProofGenFunction,
 	ProofVerify: ProofVerifyFunction,
-	BbsSchnorr: (l: number) => Promise<BbsSchnorrSuite>,
+	BbsSchnorr: (options: BbsSchnorrOptions) => Promise<BbsSchnorrSuite>,
 }
 
 
