@@ -763,10 +763,8 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-commitment-computation */
 		async function Commit(
 			committed_messages: BufferSource[],
-			api_id: BufferSource | null,
 		): Promise<[BufferSource, bigint]> {
 			committed_messages = committed_messages ?? [];
-			api_id = api_id ?? new Uint8Array([]);
 
 			const committed_message_scalars = await messages_to_scalars(committed_messages, api_id);
 			const blind_generators = await create_blind_generators(committed_message_scalars.length + 1);
@@ -1460,7 +1458,6 @@ type BlindBbsSuite = {
 	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-commitment-computation */
 	Commit(
 		committed_messages: BufferSource[],
-		api_id: BufferSource | null,
 	): Promise<[BufferSource, bigint]>;
 
 	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-blind-signature-generation */
