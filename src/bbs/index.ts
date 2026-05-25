@@ -725,6 +725,15 @@ function createSuite(suite: SuiteParams): CipherSuite {
 	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-scheme-definition */
 	function BlindBbs(): BlindBbsSuite {
 		const api_id = toUtf8(suite.id + "BLIND_H2G_HM2S_");
+		const blind_api_id = concat(toUtf8("BLIND_"), api_id);
+
+		function create_unblind_generators(count: number): Promise<PointG1[]> {
+			return create_generators(count, api_id);
+		}
+
+		function create_blind_generators(count: number): Promise<PointG1[]> {
+			return create_generators(count, blind_api_id);
+		}
 
 		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-commitment-validation-and-d */
 		async function deserialize_and_validate_commit(
@@ -757,7 +766,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			api_id = api_id ?? new Uint8Array([]);
 
 			const committed_message_scalars = await messages_to_scalars(committed_messages, api_id);
-			const blind_generators = await create_generators(committed_message_scalars.length + 1, concat(toUtf8("BLIND_"), api_id));
+			const blind_generators = await create_blind_generators(committed_message_scalars.length + 1);
 			return CoreCommit(blind_generators, committed_message_scalars, api_id);
 		}
 
@@ -783,8 +792,8 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				throw new Error(`Commitment too short: expected at least ${octet_point_length + octet_scalar_length} octets, was ${commitment_with_proof.byteLength}`, { cause: { commitment_with_proof } });
 			}
 
-			const generators = await create_generators(L + 1, api_id);
-			const blind_generators = await create_generators(M + 1, concat(toUtf8("BLIND_"), api_id));
+			const generators = await create_unblind_generators(L + 1);
+			const blind_generators = await create_blind_generators(M + 1);
 			const commit = await deserialize_and_validate_commit(commitment_with_proof, blind_generators, api_id);
 			const message_scalars = await messages_to_scalars(messages, api_id);
 			const res = B_calculate(generators, commit, message_scalars);
@@ -1011,8 +1020,8 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				),
 				...await messages_to_scalars(committed_messages, api_id),
 			];
-			const generators = await create_generators(generators_number, api_id);
-			const blind_generators = await create_generators(blind_generators_number, concat(toUtf8("BLIND_"), api_id));
+			const generators = await create_unblind_generators(generators_number);
+			const blind_generators = await create_blind_generators(blind_generators_number);
 			return [
 				[...message_scalars, ...committed_message_scalars],
 				[...generators, ...blind_generators],
@@ -1106,7 +1115,16 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			return [C, [s[0], msg_commitment, s[j - 1]]];
 		}
 
-		return { api_id, Commit, BlindSign, VerifyBlindSign, BlindProofGen, BlindProofVerify };
+		return {
+			api_id,
+			Commit,
+			BlindSign,
+			VerifyBlindSign,
+			BlindProofGen,
+			BlindProofVerify,
+			create_unblind_generators,
+			create_blind_generators,
+		};
 	}
 
 	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-coresign */
@@ -1486,6 +1504,9 @@ type BlindBbsSuite = {
 		disclosed_indexes: number[] | null,
 		disclosed_committed_indexes: number[] | null,
 	): Promise<true>;
+
+	create_unblind_generators(count: number): Promise<PointG1[]>,
+	create_blind_generators(count: number): Promise<PointG1[]>,
 }
 
 type BbsSchnorrUst = [
