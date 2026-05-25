@@ -35,6 +35,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 	};
 
 	const { expand_message, prime_subgroup_order } = suite.hash_to_curve_suite.suiteParams;
+	const api_id = new TextEncoder().encode(suite.id + "H2G_HM2S_");
 
 	function isG1(p: PointG1 | PointG2): p is PointG1 {
 		return p instanceof G1.Point;
@@ -315,411 +316,80 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		return W;
 	}
 
-	function Bbs(api_id: BufferSource): BbsSuite {
+	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-signature-generation-sign */
+	async function Sign(
+		SK: bigint,
+		PK: BufferSource,
+		header: BufferSource | null,
+		messages: BufferSource[] | null,
+	): Promise<BufferSource> {
+		header = header ?? new Uint8Array([]);
+		messages = messages ?? [];
+		const message_scalars = await messages_to_scalars(messages, api_id);
+		const generators = await create_generators(messages.length + 1, api_id);
+		const signature = await CoreSign(SK, PK, generators, header, message_scalars, api_id);
+		return signature;
+	}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-signature-generation-sign */
-		async function Sign(
-			SK: bigint,
-			PK: BufferSource,
-			header: BufferSource | null,
-			messages: BufferSource[] | null,
-		): Promise<BufferSource> {
-			header = header ?? new Uint8Array([]);
-			messages = messages ?? [];
-			const message_scalars = await messages_to_scalars(messages, api_id);
-			const generators = await create_generators(messages.length + 1, api_id);
-			const signature = await CoreSign(SK, PK, generators, header, message_scalars, api_id);
-			return signature;
+	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-signature-verification-veri */
+	async function Verify(
+		PK: BufferSource,
+		signature: BufferSource,
+		header: BufferSource | null,
+		messages: BufferSource[] | null,
+	): Promise<true> {
+		header = header ?? new Uint8Array([]);
+		messages = messages ?? [];
+		const message_scalars = await messages_to_scalars(messages, api_id);
+		const generators = await create_generators(messages.length + 1, api_id);
+		const result = await CoreVerify(PK, signature, generators, header, message_scalars, api_id);
+		return result;
+	}
+
+	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-proof-generation-proofgen */
+	async function ProofGen(
+		PK: BufferSource,
+		signature: BufferSource,
+		header: BufferSource | null,
+		ph: BufferSource | null,
+		messages: BufferSource[] | null,
+		disclosed_indexes: number[] | null,
+	): Promise<BufferSource> {
+		header = header ?? new Uint8Array([]);
+		ph = ph ?? new Uint8Array([]);
+		messages = messages ?? [];
+		disclosed_indexes = disclosed_indexes ?? [];
+		const message_scalars = await messages_to_scalars(messages, api_id);
+		const generators = await create_generators(messages.length + 1, api_id);
+		const proof = await CoreProofGen(PK, signature, generators, header, ph, message_scalars, disclosed_indexes, api_id);
+		return proof;
+	}
+
+	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-proof-verification-proofver */
+	async function ProofVerify(
+		PK: BufferSource,
+		proof: BufferSource,
+		header: BufferSource | null,
+		ph: BufferSource | null,
+		disclosed_messages: BufferSource[] | null,
+		disclosed_indexes: number[] | null,
+	): Promise<true> {
+		header = header ?? new Uint8Array([]);
+		ph = ph ?? new Uint8Array([]);
+		disclosed_messages = disclosed_messages ?? [];
+		disclosed_indexes = disclosed_indexes ?? [];
+
+		const proof_len_floor = 3 * octet_point_length + 4 * octet_scalar_length;
+		if (proof.byteLength < proof_len_floor) {
+			throw new Error(`Proof too short: expected at least ${proof_len_floor} octets, was ${proof.byteLength}`, { cause: { proof, proof_len_floor } });
 		}
+		const U = Math.floor((proof.byteLength - proof_len_floor) / octet_scalar_length);
+		const R = disclosed_indexes.length;
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-signature-verification-veri */
-		async function Verify(
-			PK: BufferSource,
-			signature: BufferSource,
-			header: BufferSource | null,
-			messages: BufferSource[] | null,
-		): Promise<true> {
-			header = header ?? new Uint8Array([]);
-			messages = messages ?? [];
-			const message_scalars = await messages_to_scalars(messages, api_id);
-			const generators = await create_generators(messages.length + 1, api_id);
-			const result = await CoreVerify(PK, signature, generators, header, message_scalars, api_id);
-			return result;
-		}
-
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-proof-generation-proofgen */
-		async function ProofGen(
-			PK: BufferSource,
-			signature: BufferSource,
-			header: BufferSource | null,
-			ph: BufferSource | null,
-			messages: BufferSource[] | null,
-			disclosed_indexes: number[] | null,
-		): Promise<BufferSource> {
-			header = header ?? new Uint8Array([]);
-			ph = ph ?? new Uint8Array([]);
-			messages = messages ?? [];
-			disclosed_indexes = disclosed_indexes ?? [];
-			const message_scalars = await messages_to_scalars(messages, api_id);
-			const generators = await create_generators(messages.length + 1, api_id);
-			const proof = await CoreProofGen(PK, signature, generators, header, ph, message_scalars, disclosed_indexes, api_id);
-			return proof;
-		}
-
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-proof-verification-proofver */
-		async function ProofVerify(
-			PK: BufferSource,
-			proof: BufferSource,
-			header: BufferSource | null,
-			ph: BufferSource | null,
-			disclosed_messages: BufferSource[] | null,
-			disclosed_indexes: number[] | null,
-		): Promise<true> {
-			header = header ?? new Uint8Array([]);
-			ph = ph ?? new Uint8Array([]);
-			disclosed_messages = disclosed_messages ?? [];
-			disclosed_indexes = disclosed_indexes ?? [];
-
-			const proof_len_floor = 3 * octet_point_length + 4 * octet_scalar_length;
-			if (proof.byteLength < proof_len_floor) {
-				throw new Error(`Proof too short: expected at least ${proof_len_floor} octets, was ${proof.byteLength}`, { cause: { proof, proof_len_floor } });
-			}
-			const U = Math.floor((proof.byteLength - proof_len_floor) / octet_scalar_length);
-			const R = disclosed_indexes.length;
-
-			const message_scalars = await messages_to_scalars(disclosed_messages, api_id);
-			const generators = await create_generators(U + R + 1, api_id);
-			const result = await CoreProofVerify(PK, proof, generators, header, ph, message_scalars, disclosed_indexes, api_id);
-			return result;
-		}
-
-		async function BbsSchnorr({ l, dpk_uses_h1 }: BbsSchnorrOptions): Promise<BbsSchnorrSuite> {
-			// Domain(Q), dpk (H0), attributes (Hi)
-			const generators = (await create_generators(1 + 1 + l, api_id));
-			const H0 = dpk_uses_h1 ? generators[1] : G1.Point.BASE;
-			const Hi = generators.slice(2);
-
-			function or_rand(ikm: BufferSource | undefined, L: number): BufferSource {
-				return ikm ?? crypto.getRandomValues(new Uint8Array(L));
-			}
-
-			function sample_scalar(dst: BufferSource, ikm?: BufferSource): Promise<bigint> {
-				return hash_to_scalar(or_rand(ikm, octet_scalar_length), dst);
-			}
-
-			async function schnorr_KGen(ikm?: BufferSource): Promise<[bigint, PointG1]> {
-				const sk = await sample_scalar(new TextEncoder().encode("Schnorr.KGen"), ikm);
-				const pk = H0.multiply(sk);
-				return [sk, pk];
-			}
-
-			type SchnorrNizkProof1 = [bigint, bigint];
-			function schnorr_encode_signature(sig: SchnorrNizkProof1): ArrayBuffer {
-				const [c, s] = sig;
-				return serialize([s, c]);
-			}
-
-			function schnorr_parse_signature(sig: BufferSource): SchnorrNizkProof1 {
-				const s = OS2IP(toU8(sig).slice(0, octet_scalar_length));
-				const c = OS2IP(toU8(sig).slice(octet_scalar_length));
-				return [c, s];
-			}
-
-			/** Sign using SHA-256 as the hash function H, with rejection sampling to fall under the group order. */
-			async function schnorr_sign_sha256(sk: bigint, m: BufferSource): Promise<SchnorrNizkProof1> {
-				while (true) {
-					const omega = await sample_scalar(new TextEncoder().encode("Schnorr.Sign"));
-					const r = H0.multiply(omega);
-					const c = OS2IP(await sha256(serialize([r, m])));
-					if (c < Fr.ORDER) {
-						const s = (omega + c * sk) % Fr.ORDER;
-						return [c, s];
-					}
-				}
-			}
-
-			async function schnorr_sign_sha256_encode(sk: bigint, m: BufferSource): Promise<ArrayBuffer> {
-				return schnorr_encode_signature(await schnorr_sign_sha256(sk, m));
-			}
-
-			/** Verify using SHA-256 as the hash function H, rejecting is the hash is greater than the group order. */
-			async function schnorr_verify_sha256(pk: PointG1, sig: SchnorrNizkProof1, m: BufferSource): Promise<true> {
-				const [c, s] = sig;
-				const c2 = OS2IP(await sha256(serialize([H0.multiply(s).subtract(pk.multiply(c)), m])));
-				if (c2 < Fr.ORDER && c == c2) {
-					return true;
-				}
-				throw new Error("Invalid signature", { cause: { pk, H0, sig, m } });
-			}
-
-			function schnorr_verify_sha256_encoded(pk: PointG1, sig: BufferSource, m: BufferSource): Promise<true> {
-				return schnorr_verify_sha256(pk, schnorr_parse_signature(sig), m);
-			}
-
-			function schnorr_re_rand_pk(pk: PointG1, r_key: bigint): PointG1 {
-				return pk.add(H0.multiply(r_key));
-			}
-
-			function schnorr_adapt_sig(sig: SchnorrNizkProof1, r_key: bigint, _m: BufferSource): [bigint, bigint] {
-				const [c, s] = sig;
-				return [c, (s + c * r_key) % Fr.ORDER];
-			}
-
-			type SchnorrNizkProof = [bigint, bigint[]];
-
-			/**
-				Schnorr NIZK as defined in appendix F.1 of https://eprint.iacr.org/2025/1995 ,
-				using:
-
-				- hash_to_field as the hash function H,
-				- the curve point encoding `point_to_octets_E1` defined in https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-serialization
-				- binary concatenation for combining hash function inputs.
-				*/
-			async function schnorr_nizk_prove(
-				M: PointG1[][],
-				Y: PointG1[],
-				x: bigint[],
-				ctx: BufferSource,
-				ikm?: BufferSource,
-			): Promise<SchnorrNizkProof> {
-				const m = M.length;
-				const n = M[0].length;
-				if (Y.length !== m || x.length !== n) {
-					throw new Error("Invalid input dimensions", { cause: { M, Y, x, m, n } });
-				}
-				if (!all_eq(matrix_mul(M, x), Y)) {
-					throw new Error("Y does not equal Mx", { cause: { M, Y, x } });
-				}
-				const omega = await Promise.all(range(n).map(i =>
-					sample_scalar(concat(new TextEncoder().encode("Schnorr.NIZK.Prove.omega."), new Uint8Array([i])), ikm)
-				));
-				const R = matrix_mul(M, omega);
-				const c = await hash_to_scalar(
-					serialize([
-						...M.flatMap(mrow => mrow),
-						...Y,
-						...R,
-						ctx,
-					]),
-					new TextEncoder().encode("Schnorr.NIZK.Proof"),
-				);
-				const s: bigint[] = omega.map((o, i) => (o + c * x[i]) % Fr.ORDER);
-				return [c, s];
-			}
-
-			async function schnorr_nizk_verify(
-				M: PointG1[][],
-				Y: PointG1[],
-				sig: SchnorrNizkProof,
-				ctx: BufferSource,
-			): Promise<true> {
-				const [c, s] = sig;
-				const Ms = matrix_mul(M, s);
-				const Yc = Y.map(y => y.multiply(c));
-				if (c === await hash_to_scalar(
-					serialize([
-						...M.flatMap(mrow => mrow),
-						...Y,
-						...Ms.map((Msi, i) => Msi.subtract(Yc[i])),
-						ctx,
-					]),
-					new TextEncoder().encode("Schnorr.NIZK.Proof"),
-				)) {
-					return true;
-				}
-				throw new Error("Invalid signature", { cause: { M, Y, sig, ctx } });
-			}
-
-
-			/** IssKGen procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
-			async function iss_kgen(ikm?: BufferSource): Promise<[bigint, PointG2]> {
-				const isk = await sample_scalar(new TextEncoder().encode("IssKGen"), ikm);
-				const ipk = G2.Point.BASE.multiply(isk);
-				return [isk, ipk];
-			}
-
-			/** DevKGen procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
-			async function dev_kgen(ikm?: BufferSource): Promise<[bigint, PointG1]> {
-				const dsk = await sample_scalar(new TextEncoder().encode("DevKGen"), ikm);
-				const dpk = H0.multiply(dsk);
-				return [dsk, dpk];
-			}
-
-			/** Issue procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
-			async function issue(
-				isk: bigint,
-				dpk: PointG1,
-				attrs: bigint[],
-				ikm?: BufferSource,
-			): Promise<[PointG1, bigint]> {
-				const e = await sample_scalar(new TextEncoder().encode("Issue"), ikm);
-				const C = G1.Point.BASE.add(dpk).add(sumprod(Hi, attrs));
-				const A = C.multiply(Fr.inv(isk + e));
-				return [A, e];
-			}
-
-			/** Verify procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
-			async function verify(
-				ipk: PointG2,
-				ctx: BufferSource,
-				disclosed_idx: number[],
-				disclosed_attrs: bigint[],
-				tau: [
-					PointG1,
-					SchnorrNizkProof1,
-					PointG1,
-					PointG1,
-					PointG1,
-					SchnorrNizkProof,
-				],
-			): Promise<true> {
-				const [dpkbar, pi_se, Abar, Bbar, Cbar, pi_bbs] = tau;
-				const non_disclosed_idx = range(l).filter(i => !disclosed_idx.includes(i));
-				if (!(await schnorr_verify_sha256(dpkbar, pi_se, serialize([dpkbar, ctx])))) {
-					throw new Error("Invalid device binding signature", { cause: { dpkbar, pi_se, ctx } });
-				}
-				if (disclosed_idx.length !== disclosed_attrs.length) {
-					throw new Error("Invalid attributes length", { cause: { disclosed_idx, disclosed_attrs } });
-				}
-				if (pi_bbs[1].length !== 4 + non_disclosed_idx.length) {
-					throw new Error("Invalid proof length", { cause: { pi_bbs, non_disclosed_idx } });
-				}
-
-				const Y = G1.Point.BASE.add(dpkbar).add(sumprod(disclosed_idx.map(i => Hi[i]), disclosed_attrs));
-
-				if (
-					(!Abar.is0())
-					&& Fp12.eql(h(Abar, ipk), h(Bbar, G2.Point.BASE))
-					&& await schnorr_nizk_verify(
-						[
-							[
-								Cbar,
-								H0,
-								...non_disclosed_idx.map(j => Hi[j].negate()),
-								G1.Point.ZERO,
-								G1.Point.ZERO,
-							],
-							[
-								...range(2 + non_disclosed_idx.length).map(() => G1.Point.ZERO),
-								Cbar,
-								Abar.negate(),
-							]
-						],
-						[Y, Bbar],
-						pi_bbs,
-						ctx,
-					)
-				) {
-					return true;
-				}
-				throw new Error("Invalid proof", { cause: { ipk, ctx, disclosed_idx, disclosed_attrs, dpkbar, pi_se, Abar, Bbar, Cbar, pi_bbs } });
-			}
-
-			/** VfCred procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
-			function vf_cred(
-				ipk: PointG2,
-				sigma: [PointG1, bigint],
-				dpk: PointG1,
-				attrs: bigint[],
-			): boolean {
-				const [A, e] = sigma;
-				const C = G1.Point.BASE.add(dpk).add(sumprod(Hi, attrs));
-				return (
-					(!A.is0()) && Fp12.eql(
-						h(A, ipk.add(G2.Point.BASE.multiply(e))), h(C, G2.Point.BASE))
-				);
-			}
-
-			/** ShowUser1 procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
-			async function show_user_1(
-				ipk: PointG2,
-				dpk: PointG1,
-				sigma: [PointG1, bigint],
-				attrs: bigint[],
-				ctx: BufferSource,
-				disclose_idx: number[],
-				ikm?: BufferSource,
-			): Promise<[BbsSchnorrUst, PointG1]> {
-				if (attrs.length !== Hi.length) {
-					throw new Error("Wrong number of attributes", { cause: { attrs, Hi } });
-				}
-				if (!disclose_idx.every(d => d >= 0 && d < attrs.length)) {
-					throw new Error("Invalid disclosed indexes", { cause: { disclose_idx, attrs } });
-				}
-
-				const r_key = await sample_scalar(new TextEncoder().encode("ShowUser1.r_key"), ikm);
-				const dpkbar = schnorr_re_rand_pk(dpk, r_key);
-				const umsg = dpkbar;
-				const ust: BbsSchnorrUst = [ipk, dpk, dpkbar, r_key, sigma, attrs, ctx, disclose_idx, ikm];
-				return [ust, umsg];
-			}
-
-			/** ShowSE1 procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
-			function show_se_1(
-				_ipk: PointG2,
-				dsk: bigint,
-				umsg: PointG1,
-				ctx: BufferSource,
-			): Promise<BufferSource> {
-				const smsg = schnorr_sign_sha256_encode(dsk, serialize([umsg, ctx]));
-				return smsg
-			}
-
-			/** ShowUser2 procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
-			async function show_user_2(
-				ust: BbsSchnorrUst,
-				smsg: BufferSource,
-			): Promise<[PointG1, SchnorrNizkProof1, PointG1, PointG1, PointG1, SchnorrNizkProof]> {
-				const [_ipk, dpk, dpkbar, r_key, sigma, attrs, ctx, disclose_idx, ikm] = ust;
-				const non_disclose_idx = range(l).filter(i => !disclose_idx.includes(i));
-				const pi_se = schnorr_adapt_sig(schnorr_parse_signature(smsg), r_key, serialize([dpkbar, ctx]));
-				const [A, e] = sigma;
-				const r1 = await sample_scalar(new TextEncoder().encode("ShowUser2.r1"), ikm);
-				const r2 = await sample_scalar(new TextEncoder().encode("ShowUser2.r2"), ikm);
-				const C = G1.Point.BASE.add(dpk).add(sumprod(Hi, attrs));
-				const Cbar = C.multiply(r1);
-				const Abar = A.multiply(r2).multiply(r1);
-				const Bbar = Cbar.multiply(r2).subtract(Abar.multiply(e));
-				const Y = (
-					G1.Point.BASE.add(dpkbar)
-						.add(sumprod(
-							disclose_idx.map(i => Hi[i]),
-							disclose_idx.map(i => attrs[i]),
-						))
-				);
-
-				const pi_bbs = await schnorr_nizk_prove(
-					[
-						[
-							Cbar,
-							H0,
-							...non_disclose_idx.map(j => Hi[j].negate()),
-							G1.Point.ZERO,
-							G1.Point.ZERO,
-						],
-						[...range(2 + non_disclose_idx.length).map(() => G1.Point.ZERO), Cbar, Abar.negate()],
-					],
-					[Y, Bbar],
-					[Fr.inv(r1), r_key, ...non_disclose_idx.map(j => attrs[j]), r2, e],
-					ctx,
-				);
-				return [dpkbar, pi_se, Abar, Bbar, Cbar, pi_bbs];
-			}
-
-			return {
-				iss_kgen,
-				dev_kgen,
-				issue,
-				verify,
-				vf_cred,
-				show_user_1,
-				show_se_1,
-				show_user_2,
-				schnorr_verify_sha256_encoded,
-			};
-		}
-
-		return { api_id, Sign, Verify, ProofGen, ProofVerify, BbsSchnorr };
+		const message_scalars = await messages_to_scalars(disclosed_messages, api_id);
+		const generators = await create_generators(U + R + 1, api_id);
+		const result = await CoreProofVerify(PK, proof, generators, header, ph, message_scalars, disclosed_indexes, api_id);
+		return result;
 	}
 
 	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-coresign */
@@ -986,14 +656,345 @@ function createSuite(suite: SuiteParams): CipherSuite {
 	}
 
 
+	async function BbsSchnorr({ l, dpk_uses_h1 }: BbsSchnorrOptions): Promise<BbsSchnorrSuite> {
+		// Domain(Q), dpk (H0), attributes (Hi)
+		const generators = (await create_generators(1 + 1 + l, api_id));
+		const H0 = dpk_uses_h1 ? generators[1] : G1.Point.BASE;
+		const Hi = generators.slice(2);
+
+		function or_rand(ikm: BufferSource | undefined, L: number): BufferSource {
+			return ikm ?? crypto.getRandomValues(new Uint8Array(L));
+		}
+
+		function sample_scalar(dst: BufferSource, ikm?: BufferSource): Promise<bigint> {
+			return hash_to_scalar(or_rand(ikm, octet_scalar_length), dst);
+		}
+
+		async function schnorr_KGen(ikm?: BufferSource): Promise<[bigint, PointG1]> {
+			const sk = await sample_scalar(new TextEncoder().encode("Schnorr.KGen"), ikm);
+			const pk = H0.multiply(sk);
+			return [sk, pk];
+		}
+
+		type SchnorrNizkProof1 = [bigint, bigint];
+		function schnorr_encode_signature(sig: SchnorrNizkProof1): ArrayBuffer {
+			const [c, s] = sig;
+			return serialize([s, c]);
+		}
+
+		function schnorr_parse_signature(sig: BufferSource): SchnorrNizkProof1 {
+			const s = OS2IP(toU8(sig).slice(0, octet_scalar_length));
+			const c = OS2IP(toU8(sig).slice(octet_scalar_length));
+			return [c, s];
+		}
+
+		/** Sign using SHA-256 as the hash function H, with rejection sampling to fall under the group order. */
+		async function schnorr_sign_sha256(sk: bigint, m: BufferSource): Promise<SchnorrNizkProof1> {
+			while (true) {
+				const omega = await sample_scalar(new TextEncoder().encode("Schnorr.Sign"));
+				const r = H0.multiply(omega);
+				const c = OS2IP(await sha256(serialize([r, m])));
+				if (c < Fr.ORDER) {
+					const s = (omega + c * sk) % Fr.ORDER;
+					return [c, s];
+				}
+			}
+		}
+
+		async function schnorr_sign_sha256_encode(sk: bigint, m: BufferSource): Promise<ArrayBuffer> {
+			return schnorr_encode_signature(await schnorr_sign_sha256(sk, m));
+		}
+
+		/** Verify using SHA-256 as the hash function H, rejecting is the hash is greater than the group order. */
+		async function schnorr_verify_sha256(pk: PointG1, sig: SchnorrNizkProof1, m: BufferSource): Promise<true> {
+			const [c, s] = sig;
+			const c2 = OS2IP(await sha256(serialize([H0.multiply(s).subtract(pk.multiply(c)), m])));
+			if (c2 < Fr.ORDER && c == c2) {
+				return true;
+			}
+			throw new Error("Invalid signature", { cause: { pk, H0, sig, m } });
+		}
+
+		function schnorr_verify_sha256_encoded(pk: PointG1, sig: BufferSource, m: BufferSource): Promise<true> {
+			return schnorr_verify_sha256(pk, schnorr_parse_signature(sig), m);
+		}
+
+		function schnorr_re_rand_pk(pk: PointG1, r_key: bigint): PointG1 {
+			return pk.add(H0.multiply(r_key));
+		}
+
+		function schnorr_adapt_sig(sig: SchnorrNizkProof1, r_key: bigint, _m: BufferSource): [bigint, bigint] {
+			const [c, s] = sig;
+			return [c, (s + c * r_key) % Fr.ORDER];
+		}
+
+		type SchnorrNizkProof = [bigint, bigint[]];
+
+		/**
+			Schnorr NIZK as defined in appendix F.1 of https://eprint.iacr.org/2025/1995 ,
+			using:
+
+			- hash_to_field as the hash function H,
+			- the curve point encoding `point_to_octets_E1` defined in https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-serialization
+			- binary concatenation for combining hash function inputs.
+			*/
+		async function schnorr_nizk_prove(
+			M: PointG1[][],
+			Y: PointG1[],
+			x: bigint[],
+			ctx: BufferSource,
+			ikm?: BufferSource,
+		): Promise<SchnorrNizkProof> {
+			const m = M.length;
+			const n = M[0].length;
+			if (Y.length !== m || x.length !== n) {
+				throw new Error("Invalid input dimensions", { cause: { M, Y, x, m, n } });
+			}
+			if (!all_eq(matrix_mul(M, x), Y)) {
+				throw new Error("Y does not equal Mx", { cause: { M, Y, x } });
+			}
+			const omega = await Promise.all(range(n).map(i =>
+				sample_scalar(concat(new TextEncoder().encode("Schnorr.NIZK.Prove.omega."), new Uint8Array([i])), ikm)
+			));
+			const R = matrix_mul(M, omega);
+			const c = await hash_to_scalar(
+				serialize([
+					...M.flatMap(mrow => mrow),
+					...Y,
+					...R,
+					ctx,
+				]),
+				new TextEncoder().encode("Schnorr.NIZK.Proof"),
+			);
+			const s: bigint[] = omega.map((o, i) => (o + c * x[i]) % Fr.ORDER);
+			return [c, s];
+		}
+
+		async function schnorr_nizk_verify(
+			M: PointG1[][],
+			Y: PointG1[],
+			sig: SchnorrNizkProof,
+			ctx: BufferSource,
+		): Promise<true> {
+			const [c, s] = sig;
+			const Ms = matrix_mul(M, s);
+			const Yc = Y.map(y => y.multiply(c));
+			if (c === await hash_to_scalar(
+				serialize([
+					...M.flatMap(mrow => mrow),
+					...Y,
+					...Ms.map((Msi, i) => Msi.subtract(Yc[i])),
+					ctx,
+				]),
+				new TextEncoder().encode("Schnorr.NIZK.Proof"),
+			)) {
+				return true;
+			}
+			throw new Error("Invalid signature", { cause: { M, Y, sig, ctx } });
+		}
+
+
+		/** IssKGen procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
+		async function iss_kgen(ikm?: BufferSource): Promise<[bigint, PointG2]> {
+			const isk = await sample_scalar(new TextEncoder().encode("IssKGen"), ikm);
+			const ipk = G2.Point.BASE.multiply(isk);
+			return [isk, ipk];
+		}
+
+		/** DevKGen procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
+		async function dev_kgen(ikm?: BufferSource): Promise<[bigint, PointG1]> {
+			const dsk = await sample_scalar(new TextEncoder().encode("DevKGen"), ikm);
+			const dpk = H0.multiply(dsk);
+			return [dsk, dpk];
+		}
+
+		/** Issue procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
+		async function issue(
+			isk: bigint,
+			dpk: PointG1,
+			attrs: bigint[],
+			ikm?: BufferSource,
+		): Promise<[PointG1, bigint]> {
+			const e = await sample_scalar(new TextEncoder().encode("Issue"), ikm);
+			const C = G1.Point.BASE.add(dpk).add(sumprod(Hi, attrs));
+			const A = C.multiply(Fr.inv(isk + e));
+			return [A, e];
+		}
+
+		/** Verify procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
+		async function verify(
+			ipk: PointG2,
+			ctx: BufferSource,
+			disclosed_idx: number[],
+			disclosed_attrs: bigint[],
+			tau: [
+				PointG1,
+				SchnorrNizkProof1,
+				PointG1,
+				PointG1,
+				PointG1,
+				SchnorrNizkProof,
+			],
+		): Promise<true> {
+			const [dpkbar, pi_se, Abar, Bbar, Cbar, pi_bbs] = tau;
+			const non_disclosed_idx = range(l).filter(i => !disclosed_idx.includes(i));
+			if (!(await schnorr_verify_sha256(dpkbar, pi_se, serialize([dpkbar, ctx])))) {
+				throw new Error("Invalid device binding signature", { cause: { dpkbar, pi_se, ctx } });
+			}
+			if (disclosed_idx.length !== disclosed_attrs.length) {
+				throw new Error("Invalid attributes length", { cause: { disclosed_idx, disclosed_attrs } });
+			}
+			if (pi_bbs[1].length !== 4 + non_disclosed_idx.length) {
+				throw new Error("Invalid proof length", { cause: { pi_bbs, non_disclosed_idx } });
+			}
+
+			const Y = G1.Point.BASE.add(dpkbar).add(sumprod(disclosed_idx.map(i => Hi[i]), disclosed_attrs));
+
+			if (
+				(!Abar.is0())
+				&& Fp12.eql(h(Abar, ipk), h(Bbar, G2.Point.BASE))
+				&& await schnorr_nizk_verify(
+					[
+						[
+							Cbar,
+							H0,
+							...non_disclosed_idx.map(j => Hi[j].negate()),
+							G1.Point.ZERO,
+							G1.Point.ZERO,
+						],
+						[
+							...range(2 + non_disclosed_idx.length).map(() => G1.Point.ZERO),
+							Cbar,
+							Abar.negate(),
+						]
+					],
+					[Y, Bbar],
+					pi_bbs,
+					ctx,
+				)
+			) {
+				return true;
+			}
+			throw new Error("Invalid proof", { cause: { ipk, ctx, disclosed_idx, disclosed_attrs, dpkbar, pi_se, Abar, Bbar, Cbar, pi_bbs } });
+		}
+
+		/** VfCred procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
+		function vf_cred(
+			ipk: PointG2,
+			sigma: [PointG1, bigint],
+			dpk: PointG1,
+			attrs: bigint[],
+		): boolean {
+			const [A, e] = sigma;
+			const C = G1.Point.BASE.add(dpk).add(sumprod(Hi, attrs));
+			return (
+				(!A.is0()) && Fp12.eql(
+					h(A, ipk.add(G2.Point.BASE.multiply(e))), h(C, G2.Point.BASE))
+			);
+		}
+
+		/** ShowUser1 procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
+		async function show_user_1(
+			ipk: PointG2,
+			dpk: PointG1,
+			sigma: [PointG1, bigint],
+			attrs: bigint[],
+			ctx: BufferSource,
+			disclose_idx: number[],
+			ikm?: BufferSource,
+		): Promise<[BbsSchnorrUst, PointG1]> {
+			if (attrs.length !== Hi.length) {
+				throw new Error("Wrong number of attributes", { cause: { attrs, Hi } });
+			}
+			if (!disclose_idx.every(d => d >= 0 && d < attrs.length)) {
+				throw new Error("Invalid disclosed indexes", { cause: { disclose_idx, attrs } });
+			}
+
+			const r_key = await sample_scalar(new TextEncoder().encode("ShowUser1.r_key"), ikm);
+			const dpkbar = schnorr_re_rand_pk(dpk, r_key);
+			const umsg = dpkbar;
+			const ust: BbsSchnorrUst = [ipk, dpk, dpkbar, r_key, sigma, attrs, ctx, disclose_idx, ikm];
+			return [ust, umsg];
+		}
+
+		/** ShowSE1 procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
+		function show_se_1(
+			_ipk: PointG2,
+			dsk: bigint,
+			umsg: PointG1,
+			ctx: BufferSource,
+		): Promise<BufferSource> {
+			const smsg = schnorr_sign_sha256_encode(dsk, serialize([umsg, ctx]));
+			return smsg
+		}
+
+		/** ShowUser2 procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
+		async function show_user_2(
+			ust: BbsSchnorrUst,
+			smsg: BufferSource,
+		): Promise<[PointG1, SchnorrNizkProof1, PointG1, PointG1, PointG1, SchnorrNizkProof]> {
+			const [_ipk, dpk, dpkbar, r_key, sigma, attrs, ctx, disclose_idx, ikm] = ust;
+			const non_disclose_idx = range(l).filter(i => !disclose_idx.includes(i));
+			const pi_se = schnorr_adapt_sig(schnorr_parse_signature(smsg), r_key, serialize([dpkbar, ctx]));
+			const [A, e] = sigma;
+			const r1 = await sample_scalar(new TextEncoder().encode("ShowUser2.r1"), ikm);
+			const r2 = await sample_scalar(new TextEncoder().encode("ShowUser2.r2"), ikm);
+			const C = G1.Point.BASE.add(dpk).add(sumprod(Hi, attrs));
+			const Cbar = C.multiply(r1);
+			const Abar = A.multiply(r2).multiply(r1);
+			const Bbar = Cbar.multiply(r2).subtract(Abar.multiply(e));
+			const Y = (
+				G1.Point.BASE.add(dpkbar)
+					.add(sumprod(
+						disclose_idx.map(i => Hi[i]),
+						disclose_idx.map(i => attrs[i]),
+					))
+			);
+
+			const pi_bbs = await schnorr_nizk_prove(
+				[
+					[
+						Cbar,
+						H0,
+						...non_disclose_idx.map(j => Hi[j].negate()),
+						G1.Point.ZERO,
+						G1.Point.ZERO,
+					],
+					[...range(2 + non_disclose_idx.length).map(() => G1.Point.ZERO), Cbar, Abar.negate()],
+				],
+				[Y, Bbar],
+				[Fr.inv(r1), r_key, ...non_disclose_idx.map(j => attrs[j]), r2, e],
+				ctx,
+			);
+			return [dpkbar, pi_se, Abar, Bbar, Cbar, pi_bbs];
+		}
+
+		return {
+			iss_kgen,
+			dev_kgen,
+			issue,
+			verify,
+			vf_cred,
+			show_user_1,
+			show_se_1,
+			show_user_2,
+			schnorr_verify_sha256_encoded,
+		};
+	}
+
 	return {
 		params: suite,
+		api_id,
 		hash_to_scalar,
 		messages_to_scalars,
 		create_generators,
 		KeyGen,
 		SkToPk,
-		Bbs: Bbs(new TextEncoder().encode(suite.id + "H2G_HM2S_")),
+		Sign,
+		Verify,
+		ProofGen,
+		ProofVerify,
+		BbsSchnorr,
 	};
 }
 
@@ -1033,18 +1034,6 @@ export type SuiteParams = {
 
 type SchnorrNizkProof1 = [bigint, bigint];
 type SchnorrNizkProof = [bigint, bigint[]];
-
-type BbsSuite = {
-	api_id: BufferSource,
-
-	Sign: SignFunction,
-	Verify: VerifyFunction,
-	ProofGen: ProofGenFunction,
-	ProofVerify: ProofVerifyFunction,
-
-	BbsSchnorr: (options: BbsSchnorrOptions) => Promise<BbsSchnorrSuite>,
-}
-
 type BbsSchnorrUst = [
 	PointG2,
 	PointG1,
@@ -1102,12 +1091,17 @@ export type BbsSchnorrSuite = {
 
 type CipherSuite = {
 	params: SuiteParams,
+	api_id: BufferSource,
 	hash_to_scalar: HashToScalarFunc,
 	messages_to_scalars: MessagesToScalarsFunc,
 	create_generators: CreateGeneratorsFunc,
 	KeyGen: KeyGenFunction,
 	SkToPk: SkToPkFunction,
-	Bbs: BbsSuite,
+	Sign: SignFunction,
+	Verify: VerifyFunction,
+	ProofGen: ProofGenFunction,
+	ProofVerify: ProofVerifyFunction,
+	BbsSchnorr: (options: BbsSchnorrOptions) => Promise<BbsSchnorrSuite>,
 }
 
 
