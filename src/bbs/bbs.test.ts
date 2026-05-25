@@ -11,6 +11,16 @@ describe("Suite:", () => {
 
 	describe(suiteId, () => {
 
+		const suite = getCipherSuite(suiteId);
+		const {
+			Bbs,
+			KeyGen,
+			SkToPk,
+			create_generators,
+			hash_to_scalar,
+			messages_to_scalars,
+		} = suite;
+
 		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-messages-2 */
 		const messages = [
 			"9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02",
@@ -30,7 +40,6 @@ describe("Suite:", () => {
 				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-hash-to-scalar-test-vectors-2
 				const msg = fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02");
 				const dst = fromHex("4242535f424c53313233383147315f584d443a5348412d3235365f535357555f524f5f4832475f484d32535f4832535f");
-				const { hash_to_scalar } = getCipherSuite(suiteId);
 				const scalar = await hash_to_scalar(msg, dst);
 				assert.equal(scalar, 0x0f90cbee27beb214e6545becb8404640d3612da5d6758dffeccd77ed7169807cn);
 			});
@@ -41,8 +50,7 @@ describe("Suite:", () => {
 				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-key-pair-2
 				const key_material = fromHex("746869732d49532d6a7573742d616e2d546573742d494b4d2d746f2d67656e65726174652d246528724074232d6b6579");
 				const key_info = fromHex("746869732d49532d736f6d652d6b65792d6d657461646174612d746f2d62652d757365642d696e2d746573742d6b65792d67656e");
-				const { api_id, KeyGen, SkToPk } = getCipherSuite(suiteId);
-				const key_dst = concat(api_id, toUtf8("KEYGEN_DST_"));
+				const key_dst = concat(Bbs.api_id, toUtf8("KEYGEN_DST_"));
 				const SK = await KeyGen(key_material, key_info, key_dst);
 				const PK = SkToPk(SK);
 
@@ -58,8 +66,7 @@ describe("Suite:", () => {
 		describe("messages_to_scalars", () => {
 			it("passes test vectors", async () => {
 				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-map-messages-to-scalars-2
-				const { api_id, messages_to_scalars } = getCipherSuite(suiteId);
-				const scalars = await messages_to_scalars(messages, api_id);
+				const scalars = await messages_to_scalars(messages, Bbs.api_id);
 
 				assert.equal(scalars.length, 10);
 				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-messages-2
@@ -79,9 +86,8 @@ describe("Suite:", () => {
 		describe("create_generators", () => {
 			it("passes test vectors", async () => {
 				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-message-generators-2
-				const { api_id, create_generators } = getCipherSuite(suiteId);
 				const count = 11;
-				const generators = await create_generators(count, api_id);
+				const generators = await create_generators(count, Bbs.api_id);
 
 				assert.equal(generators.length, count);
 				assert.equal(toHex(generators[0].toBytes()), "a9ec65b70a7fbe40c874c9eb041c2cb0a7af36ccec1bea48fa2ba4c2eb67ef7f9ecb17ed27d38d27cdeddff44c8137be");
@@ -98,11 +104,10 @@ describe("Suite:", () => {
 			});
 
 			it("generates the same sequence independent of count", async () => {
-				const { api_id, create_generators } = getCipherSuite(suiteId);
 				const count1 = 5;
 				const count2 = count1 + Math.round(1 + 10*Math.random());
-				const generators1 = await create_generators(count1, api_id);
-				const generators2 = await create_generators(count2, api_id);
+				const generators1 = await create_generators(count1, Bbs.api_id);
+				const generators2 = await create_generators(count2, Bbs.api_id);
 
 				assert(generators2.length > generators1.length);
 				assert(generators1.every((g1, i) => {
@@ -134,6 +139,7 @@ describe("Suite:", () => {
 		});
 
 		describe("Sign and Verify", () => {
+			const { Sign, Verify } = Bbs;
 
 			// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-signature-fixtures-2
 			describe("pass test vectors:", async () => {
@@ -149,7 +155,6 @@ describe("Suite:", () => {
 
 				it("Valid Single Message Signature", async () => {
 					// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-valid-single-message-signatu
-					const { Sign, Verify } = getCipherSuite(suiteId);
 
 					const m_1 = fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02");
 					const expectSignature = fromHex(
@@ -173,8 +178,6 @@ describe("Suite:", () => {
 
 				it("Valid Multi-Message Signature", async () => {
 					// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-valid-multi-message-signatur
-					const { Sign, Verify } = getCipherSuite(suiteId);
-
 					assert.equal(toHex(await Sign(SK, PK, header, messages)), toHex(signature));
 
 					const valid = await Verify(PK, signature, header, messages);
@@ -192,8 +195,6 @@ describe("Suite:", () => {
 
 				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-no-header-valid-signature-2
 				it("No Header Valid Signature", async () => {
-					const { Sign, Verify } = getCipherSuite(suiteId);
-
 					const header = fromHex("");
 					const expectSignature = fromHex(
 						"8c87e2080859a97299c148427cd2fcf390d24bea850103a9748879039262ecf4f42206f6ef767f29" +
@@ -208,8 +209,6 @@ describe("Suite:", () => {
 
 				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-modified-message-signature-2
 				it("Modified Message Signature", async () => {
-					const { Sign, Verify } = getCipherSuite(suiteId);
-
 					const modifiedMessages = [""].map(fromHex);
 					const signature = fromHex(
 						"84773160b824e194073a57493dac1a20b667af70cd2352d8af241c77658da5253aa8458317cca0ea" +
@@ -221,8 +220,6 @@ describe("Suite:", () => {
 
 				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-extra-unsigned-message-signa
 				it("Extra Unsigned Message Signature", async () => {
-					const { Sign, Verify } = getCipherSuite(suiteId);
-
 					const modifiedMessages = [
 						"9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02",
 						"c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80", // Omitted in signature
@@ -237,8 +234,6 @@ describe("Suite:", () => {
 
 				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-missing-message-signature-2
 				it("Missing Message Signature", async () => {
-					const { Sign, Verify } = getCipherSuite(suiteId);
-
 					const modifiedMessages = [
 						"9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02",
 						"c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80",
@@ -250,8 +245,6 @@ describe("Suite:", () => {
 
 				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-reordered-message-signature-2
 				it("Reordered Message Signature", async () => {
-					const { Sign, Verify } = getCipherSuite(suiteId);
-
 					const modifiedMessages = [
 						"",
 						"96012096",
@@ -271,8 +264,6 @@ describe("Suite:", () => {
 
 				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-wrong-public-key-signature-2
 				it("Wrong Public Key Signature", async () => {
-					const { Sign, Verify } = getCipherSuite(suiteId);
-
 					const wrongPK = fromHex(
 						"b064bd8d1ba99503cbb7f9d7ea00bce877206a85b1750e5583dd9399828a4d20610cb937ea928d90404c239b2835ffb1" +
 						"04220a9c66a4c9ed3b54c0cac9ea465d0429556b438ceefb59650ddf67e7a8f103677561b7ef7fe3c3357ec6b94d41c6");
@@ -283,8 +274,6 @@ describe("Suite:", () => {
 
 				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-wrong-header-signature-2
 				it("Wrong Header Signature", async () => {
-					const { Sign, Verify } = getCipherSuite(suiteId);
-
 					const wrongHeader = fromHex("ffeeddccbbaa00998877665544332211");
 
 					assert.equal(toHex(await Sign(SK, PK, header, messages)), toHex(signature));
@@ -297,14 +286,14 @@ describe("Suite:", () => {
 			// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-proof-fixtures-2
 			describe("pass test vectors:", async () => {
 
-				const defaultSuite = getCipherSuite(suiteId);
-				const { ProofGen, ProofVerify } = getCipherSuite(
+				const defaultBbs = Bbs;
+				const { Bbs: { ProofGen, ProofVerify } } = getCipherSuite(
 					suiteId,
 					{
 						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-mocked-random-scalars
 						mocked_random_scalars_params: {
 							SEED: fromHex("332e313431353932363533353839373933323338343632363433333833323739"),
-							DST: concat(defaultSuite.api_id, toUtf8("MOCK_RANDOM_SCALARS_DST_")),
+							DST: concat(defaultBbs.api_id, toUtf8("MOCK_RANDOM_SCALARS_DST_")),
 						},
 					},
 				);
