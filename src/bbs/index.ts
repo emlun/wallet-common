@@ -740,14 +740,10 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-commitment-validation-and-d */
 		async function deserialize_and_validate_commit(
-			commitment_with_proof: BufferSource | null,
-			blind_generators: PointG1[] | null,
-			api_id: BufferSource | null,
+			commitment_with_proof: BufferSource,
+			blind_generators: PointG1[],
+			api_id: BufferSource,
 		): Promise<PointG1> {
-			commitment_with_proof = commitment_with_proof ?? new Uint8Array([]);
-			blind_generators = blind_generators ?? [];
-			api_id = api_id ?? new Uint8Array([]);
-
 			if (commitment_with_proof.byteLength === 0) {
 				return G1.Point.ZERO;
 			}
