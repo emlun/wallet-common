@@ -994,6 +994,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		KeyGen,
 		SkToPk,
 		Bbs: Bbs(new TextEncoder().encode(suite.id + "H2G_HM2S_")),
+		BlindBbs: BlindBbs(new TextEncoder().encode(suite.id + "BLIND_H2G_HM2S_")),
 	};
 }
 
