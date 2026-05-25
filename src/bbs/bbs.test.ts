@@ -446,18 +446,7 @@ describe("Suite:", () => {
 		});
 
 		describe("Blind BBS", async () => {
-			const {
-				BlindBbs,
-				params: { curves: { G1 } },
-			} = suite;
-			const {
-				api_id,
-				Commit,
-				BlindSign,
-				VerifyBlindSign,
-				BlindProofGen,
-				BlindProofVerify,
-			} = BlindBbs;
+			const { BlindBbs } = suite;
 
 			describe("create_generators (non-blind)", () => {
 				const { create_unblind_generators } = BlindBbs;
@@ -557,6 +546,877 @@ describe("Suite:", () => {
 							"855ba8326a4d47732c5aed3968b396a07f079b22b5bf2139e51a03"
 						);
 						assert.equal(secret_prover_blind, Fr.fromBytes(fromHex("4fba5396baa36b2fde81d46a9b9ee89c425dbc5e1ffd65c20249afb4abd37589")));
+					});
+				});
+			});
+
+			describe("signature", () => {
+				describe("passes test vectors:", async () => {
+
+					const { BlindBbs: { Commit, BlindSign, VerifyBlindSign }, params: { curves: { fields: { Fr } } } } = getCipherSuite(
+						suiteId,
+						{
+							// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-mocked-random-scalars
+							// with
+							// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-commitment
+							mocked_random_scalars_params: {
+								SEED: toUtf8("3.141592653589793238462643383279"),
+								DST: toUtf8("BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_H2G_HM2S_COMMIT_MOCK_RANDOM_SCALARS_DST_"),
+							},
+						},
+					);
+
+					// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-signature-test-vectors
+					const SK = Fr.fromBytes(fromHex("60e55110f76883a13d030b2f6bd11883422d5abde717569fc0731f51237169fc"));
+					const PK = fromHex(
+						"a820f230f6ae38503b86c70dc50b61c58a77e45c39ab25c0652bbaa8fa1" +
+						"36f2851bd4781c9dcde39fc9d1d52c9e60268061e7d7632171d91aa8d46" +
+						"0acee0e96f1e7c4cfb12d3ff9ab5d5dc91c277db75c845d649ef3c4f63a" +
+						"ebc364cd55ded0c"
+					);
+					const header = fromHex("11223344556677889900aabbccddeeff");
+
+					it("valid no prover committed messages, no signer messages signature", async ({ skip }) => {
+						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-valid-no-prover-committed-m
+						const messages = [];
+						const committed_messages = [];
+						const [commitment_with_proof, secret_prover_blind] = await Commit(committed_messages);
+
+						assert.equal(
+							toHex(commitment_with_proof),
+							"849d3cc626720202cbc1610fc01ab41ce32099af602def0c5" +
+							"79f37dd18b485ef60719275a036bdd8120e7e938c8e1a3d4d" +
+							"0322587441ccc5caf186001b45dd09ee159713c3e3ea0f411" +
+							"f94a5d6665546562d09c093b687a129e464a57e18cdbf5306" +
+							"bcabf3e7cc95f5ba98cdd9bf3768"
+						);
+						assert.equal(secret_prover_blind, Fr.fromBytes(fromHex("1b6f406b17aaf92dc7deb911c7cae49756a6623b5c385b5ae6214d7e3d9597f7")));
+
+						const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
+						const expectedSignature = fromHex(
+							"ab54c35fb2af5c75d6368bc5772547e126d60a92205d011bb9ee5d11494" +
+							"32e91611fd376fe5b79d6ed7c2ba00a19b7434744945fd77bf02cd4628a" +
+							"6e5deeae50768116d55510251bb6a716a38340e184"
+						);
+						assert(await VerifyBlindSign(PK, signature, header, messages, committed_messages, secret_prover_blind));
+						assert(await VerifyBlindSign(PK, expectedSignature, header, messages, committed_messages, secret_prover_blind));
+
+						skip("signature does not reproduce");
+						assert.equal(toHex(signature), toHex(expectedSignature));
+					});
+
+					it("valid multi prover committed messages, no signer messages signature", async ({ skip }) => {
+						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-valid-multi-prover-committe
+						const messages = [];
+						const committed_messages = [
+							fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
+							fromHex("a75d8b634891af92282cc81a675972d1929d3149863c1fc0"),
+							fromHex("835889a40744813a892eff9deb1edaeb"),
+							fromHex("e1ca9729410dc6ba"),
+							fromHex(""),
+						];
+						const [commitment_with_proof, secret_prover_blind] = await Commit(committed_messages);
+
+						assert.equal(
+							toHex(commitment_with_proof),
+							"a2a3e178bcc77f98a3c07f8532134021ab5847326b5b3bfc3" +
+							"089ca73f1bc51cfe2c99163f4919525dd6bedc8a14ee39e30" +
+							"374643902017ca2e6fb8b5647c736e82d1d3c5b05de5c3021" +
+							"fa6f40d9f36dd22fa06e522411aa20377088ca9a15885d7a5" +
+							"044175f0168e927149ee71e2d257079e0100d6d96a7ddf539" +
+							"2dbc64267af8df7b4711cb5eeccb5e8901d0580b9e837f383" +
+							"37cb7260cffcf4f962154fafe5c98beaed7e4d2fc0f8e7eb1" +
+							"ba4eb04086f170aa4924894e2ab63054049c9ef5dfff4f90b" +
+							"48ef0dcf1f50699907301073270e4782d4d7628cfbe1444ce" +
+							"a930928bb45004e41e0ad86a874ea03473845ce42f78ceb6f" +
+							"855ba8326a4d47732c5aed3968b396a07f079b22b5bf2139e51a03"
+						);
+						assert.equal(secret_prover_blind, Fr.fromBytes(fromHex("4fba5396baa36b2fde81d46a9b9ee89c425dbc5e1ffd65c20249afb4abd37589")));
+
+						const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
+						const expectedSignature = fromHex(
+							"b7446e6ae4e8b5707ac0108f3b1049e9ea01bd6b2b4a7dcf06e5ad1c62a" +
+							"9c0b1585829f0e30fba6c9761469ed908deca52ba5499cef2827b99527b" +
+							"4adf1f30522ce32366385ba87594b8d0e44d156eec"
+						);
+						assert(await VerifyBlindSign(PK, signature, header, messages, committed_messages, secret_prover_blind));
+						assert(await VerifyBlindSign(PK, expectedSignature, header, messages, committed_messages, secret_prover_blind));
+
+						skip("signature does not reproduce");
+						assert.equal(toHex(signature), toHex(expectedSignature));
+					});
+
+					it("valid no prover committed messages, multiple signer messages signature", async ({ skip }) => {
+						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-valid-no-prover-committed-me
+						const messages = [
+							fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"),
+							fromHex("c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80"),
+							fromHex("7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73"),
+							fromHex("77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c"),
+							fromHex("496694774c5604ab1b2544eababcf0f53278ff50"),
+							fromHex("515ae153e22aae04ad16f759e07237b4"),
+							fromHex("d183ddc6e2665aa4e2f088af"),
+							fromHex("ac55fb33a75909ed"),
+							fromHex("96012096"),
+							fromHex(""),
+						];
+						const committed_messages = [];
+						const [commitment_with_proof, secret_prover_blind] = await Commit(committed_messages);
+
+						assert.equal(
+							toHex(commitment_with_proof),
+							"849d3cc626720202cbc1610fc01ab41ce32099af602def0c5" +
+							"79f37dd18b485ef60719275a036bdd8120e7e938c8e1a3d4d" +
+							"0322587441ccc5caf186001b45dd09ee159713c3e3ea0f411" +
+							"f94a5d6665546562d09c093b687a129e464a57e18cdbf5306" +
+							"bcabf3e7cc95f5ba98cdd9bf3768"
+						);
+						assert.equal(secret_prover_blind, Fr.fromBytes(fromHex("1b6f406b17aaf92dc7deb911c7cae49756a6623b5c385b5ae6214d7e3d9597f7")));
+
+						const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
+						const expectedSignature = fromHex(
+							"b869cccbe84dce890949db3393c963ead72d044863b2c75bc26c0adfbe0" +
+							"8b5bb01db9e4db3313fc660ebb3283634772809d177d191bffde6fe7fbd" +
+							"8ca95d7b842e434ae973b7e458325b9eb23b6cf076"
+						);
+						assert(await VerifyBlindSign(PK, signature, header, messages, committed_messages, secret_prover_blind));
+						assert(await VerifyBlindSign(PK, expectedSignature, header, messages, committed_messages, secret_prover_blind));
+
+						skip("signature does not reproduce");
+						assert.equal(toHex(signature), toHex(expectedSignature));
+					});
+
+					it("valid multiple signer and prover committed messages signature", async ({ skip }) => {
+						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-valid-multiple-signer-and-p
+						const messages = [
+							fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"),
+							fromHex("c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80"),
+							fromHex("7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73"),
+							fromHex("77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c"),
+							fromHex("496694774c5604ab1b2544eababcf0f53278ff50"),
+							fromHex("515ae153e22aae04ad16f759e07237b4"),
+							fromHex("d183ddc6e2665aa4e2f088af"),
+							fromHex("ac55fb33a75909ed"),
+							fromHex("96012096"),
+							fromHex(""),
+						];
+						const committed_messages = [
+							fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
+							fromHex("a75d8b634891af92282cc81a675972d1929d3149863c1fc0"),
+							fromHex("835889a40744813a892eff9deb1edaeb"),
+							fromHex("e1ca9729410dc6ba"),
+							fromHex(""),
+						];
+						const [commitment_with_proof, secret_prover_blind] = await Commit(committed_messages);
+
+						assert.equal(
+							toHex(commitment_with_proof),
+							"a2a3e178bcc77f98a3c07f8532134021ab5847326b5b3bfc3" +
+							"089ca73f1bc51cfe2c99163f4919525dd6bedc8a14ee39e30" +
+							"374643902017ca2e6fb8b5647c736e82d1d3c5b05de5c3021" +
+							"fa6f40d9f36dd22fa06e522411aa20377088ca9a15885d7a5" +
+							"044175f0168e927149ee71e2d257079e0100d6d96a7ddf539" +
+							"2dbc64267af8df7b4711cb5eeccb5e8901d0580b9e837f383" +
+							"37cb7260cffcf4f962154fafe5c98beaed7e4d2fc0f8e7eb1" +
+							"ba4eb04086f170aa4924894e2ab63054049c9ef5dfff4f90b" +
+							"48ef0dcf1f50699907301073270e4782d4d7628cfbe1444ce" +
+							"a930928bb45004e41e0ad86a874ea03473845ce42f78ceb6f" +
+							"855ba8326a4d47732c5aed3968b396a07f079b22b5bf2139e51a03"
+						);
+						assert.equal(secret_prover_blind, Fr.fromBytes(fromHex("4fba5396baa36b2fde81d46a9b9ee89c425dbc5e1ffd65c20249afb4abd37589")));
+
+						const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
+						const expectedSignature = fromHex(
+							"862eb2fedd0a2b76fb978035cb33952004bdd6136e107bb343cb2c5ea56" +
+							"6eb0c3b0ba31b1d022ebf03d0abf050ab293c0afd9c96003331aa13f18a" +
+							"7a47e2e1ccaa8feb7f3a236e92b2da38462358c48a"
+						);
+						assert(await VerifyBlindSign(PK, signature, header, messages, committed_messages, secret_prover_blind));
+						assert(await VerifyBlindSign(PK, expectedSignature, header, messages, committed_messages, secret_prover_blind));
+
+						skip("signature does not reproduce");
+						assert.equal(toHex(signature), toHex(expectedSignature));
+					});
+
+					it("valid no commitment signature", async ({ skip }) => {
+						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-valid-no-commitment-signatu
+
+						const messages = [
+							fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"),
+							fromHex("c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80"),
+							fromHex("7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73"),
+							fromHex("77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c"),
+							fromHex("496694774c5604ab1b2544eababcf0f53278ff50"),
+							fromHex("515ae153e22aae04ad16f759e07237b4"),
+							fromHex("d183ddc6e2665aa4e2f088af"),
+							fromHex("ac55fb33a75909ed"),
+							fromHex("96012096"),
+							fromHex(""),
+						];
+						const committed_messages = null;
+						const commitment_with_proof = null;
+						const secret_prover_blind = null;
+
+						const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
+						const expectedSignature = fromHex(
+							"8aa8fdfb190987d1fe1c8e34e69eae25594701958064e4483d74580a4a0" +
+							"f51f058a87735d727383b864904aa7b5e4a9b3821a18319df0ccb2e351a" +
+							"9bf75bf1f34d8858dde57119bfafd8ff56e0c54fa4"
+						);
+						skip("signature does not verify");
+						assert(await VerifyBlindSign(PK, signature, header, messages, committed_messages, secret_prover_blind));
+						assert(await VerifyBlindSign(PK, expectedSignature, header, messages, committed_messages, secret_prover_blind));
+
+						skip("signature does not reproduce");
+						assert.equal(toHex(signature), toHex(expectedSignature));
+					});
+				});
+			});
+
+			describe("proof", () => {
+				describe("passes test vectors:", async () => {
+
+					const { BlindBbs: { BlindProofGen, BlindProofVerify }, params: { curves: { fields: { Fr } } } } = getCipherSuite(
+						suiteId,
+						{
+							// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-mocked-random-scalars
+							// with
+							// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-commitment
+							mocked_random_scalars_params: {
+								SEED: toUtf8("3.141592653589793238462643383279"),
+								DST: toUtf8("BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_H2G_HM2S_PROOF_MOCK_RANDOM_SCALARS_DST_"),
+							},
+						},
+					);
+
+					// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-proof-test-vectors
+					const PK = fromHex(
+						"a820f230f6ae38503b86c70dc50b61c58a77e45c39ab25c0652bbaa8fa1" +
+						"36f2851bd4781c9dcde39fc9d1d52c9e60268061e7d7632171d91aa8d46" +
+						"0acee0e96f1e7c4cfb12d3ff9ab5d5dc91c277db75c845d649ef3c4f63a" +
+						"ebc364cd55ded0c"
+					);
+					const header = fromHex("11223344556677889900aabbccddeeff");
+
+					it("valid all prover committed messages and signer messages revealed proof", async () => {
+						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-valid-all-prover-committed-
+						const signature = fromHex(
+							"862eb2fedd0a2b76fb978035cb33952004bdd6136e107bb343cb2c5ea56" +
+							"6eb0c3b0ba31b1d022ebf03d0abf050ab293c0afd9c96003331aa13f18a" +
+							"7a47e2e1ccaa8feb7f3a236e92b2da38462358c48a"
+						);
+						const secret_prover_blind = Fr.fromBytes(fromHex("4fba5396baa36b2fde81d46a9b9ee89c425dbc5e1ffd65c20249afb4abd37589"));
+						const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
+						const messages = [
+							fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"),
+							fromHex("c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80"),
+							fromHex("7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73"),
+							fromHex("77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c"),
+							fromHex("496694774c5604ab1b2544eababcf0f53278ff50"),
+							fromHex("515ae153e22aae04ad16f759e07237b4"),
+							fromHex("d183ddc6e2665aa4e2f088af"),
+							fromHex("ac55fb33a75909ed"),
+							fromHex("96012096"),
+							fromHex(""),
+						];
+						const committed_messages = [
+							fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
+							fromHex("a75d8b634891af92282cc81a675972d1929d3149863c1fc0"),
+							fromHex("835889a40744813a892eff9deb1edaeb"),
+							fromHex("e1ca9729410dc6ba"),
+							fromHex(""),
+						];
+
+						const disclosed_indexes = messages.map((_, i) => i);
+						const disclosed_commitment_indexes = committed_messages.map((_, j) => j);
+						const proof = await BlindProofGen(
+							PK,
+							signature,
+							header,
+							presentation_header,
+							messages,
+							committed_messages,
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+							secret_prover_blind,
+						);
+
+						assert.equal(
+							toHex(proof),
+							"a80ea73d954433eca5bff121e0ad4b41e91d2b600cc717eff3804f11ef21cc9" +
+							"b9b20da25387722ae6b2dd78103a3413484c3a88248f51c9bfe93cbd88dabc6" +
+							"19ba8a432814b15f8dfe601c1cac5404986541968307c8d06acf63ab906c411" +
+							"77ba9e5e8f4f1ff77426d3e905b7809243e9ae10acd1013c40525c257e3fe6f" +
+							"1bec2a5204433d354f3508eb93e24c91e49b60e8c0bd15af07241c43301024d" +
+							"5d8701516307a7b1bb381fbc3bfcaefa4d092519b4996840e199e7e2c40d75d" +
+							"593a993ea002fe4d411a9ef650cd0416033ff04d1bb51ca8377b789a2747206" +
+							"95c86f5e70ecb56c4abcb3b6ff88edf48677c273ca24547a67e10d4deab8b9c" +
+							"989c48d9414b1c05bf61b8f8ae73c9d48c37dec55c1dd59fd821e66b06a117d" +
+							"7248b8676e5c15da737cbeb371790a37917130e74"
+						);
+
+						const L = 10;
+						assert(await BlindProofVerify(
+							PK,
+							proof,
+							header,
+							presentation_header,
+							L,
+							disclosed_indexes.map(i => messages[i]),
+							disclosed_commitment_indexes.map(j => committed_messages[j]),
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+						));
+					});
+
+					it("valid half prover committed messages and all signer messages revealed proof", async () => {
+						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-valid-half-prover-committed
+						const signature = fromHex(
+							"862eb2fedd0a2b76fb978035cb33952004bdd6136e107bb343cb2c5ea56" +
+							"6eb0c3b0ba31b1d022ebf03d0abf050ab293c0afd9c96003331aa13f18a" +
+							"7a47e2e1ccaa8feb7f3a236e92b2da38462358c48a"
+						);
+						const secret_prover_blind = Fr.fromBytes(fromHex("4fba5396baa36b2fde81d46a9b9ee89c425dbc5e1ffd65c20249afb4abd37589"));
+						const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
+						const messages = [
+							fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"),
+							fromHex("c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80"),
+							fromHex("7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73"),
+							fromHex("77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c"),
+							fromHex("496694774c5604ab1b2544eababcf0f53278ff50"),
+							fromHex("515ae153e22aae04ad16f759e07237b4"),
+							fromHex("d183ddc6e2665aa4e2f088af"),
+							fromHex("ac55fb33a75909ed"),
+							fromHex("96012096"),
+							fromHex(""),
+						];
+						const committed_messages = [
+							fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
+							fromHex("a75d8b634891af92282cc81a675972d1929d3149863c1fc0"),
+							fromHex("835889a40744813a892eff9deb1edaeb"),
+							fromHex("e1ca9729410dc6ba"),
+							fromHex(""),
+						];
+
+						const disclosed_indexes = messages.map((_, i) => i);
+						const disclosed_commitment_indexes = [0, 2, 4];
+						const proof = await BlindProofGen(
+							PK,
+							signature,
+							header,
+							presentation_header,
+							messages,
+							committed_messages,
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+							secret_prover_blind,
+						);
+
+						assert.equal(
+							toHex(proof),
+							"a1fe94ec24e6d325d2494e10bdc395bd82e613e8dd08ca8f4eeffee294246b9" +
+							"321cc0e5997de7ae473a4d4c39f27b9088c815c0ff4f8ff7da0ef6d3338e048" +
+							"e2b28d98e148e1e8717b6ff6dfc4c74379aab5f409212986ce667c0b9ae4c48" +
+							"c278720d66be792af1a62989ea56f433a17f05af1f761b48b9ae2bb24418208" +
+							"111680d75c8b7d781186afedbe7c7f293b644cad32737358fed7adc516ec643" +
+							"19298fa4d22e2119db88e846f4d8665858b0930016a56245de910baa76242d3" +
+							"b2f48d61e78491695773063178c1f35d392198616b619fb5019a17fd6ec0bbb" +
+							"f6820cfe6bf8eb58801049465d86aca537126b759f76d65d2239d71584c85c3" +
+							"71ff9bc0fd38ebd6623df2cba477ef0ffb0c0c9f35e8a6b4c2c865f4e1b0e5b" +
+							"c543601c0a209816a420bd9a6b71e0cf9bc330cc2078c8d74f7c741b2fc6ce3" +
+							"e553fe11d4ee2e02b34e81bd06074dfc892b87046a6f77fc07c8857b819c764" +
+							"ae92d3779b4bf76f875b4589b37daad83c6bf1889ba"
+						);
+
+						const L = 10;
+						assert(await BlindProofVerify(
+							PK,
+							proof,
+							header,
+							presentation_header,
+							L,
+							disclosed_indexes.map(i => messages[i]),
+							disclosed_commitment_indexes.map(j => committed_messages[j]),
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+						));
+					});
+
+					it("valid half prover committed messages and all signer messages revealed proof", async () => {
+						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-valid-half-prover-committed-
+						const signature = fromHex(
+							"862eb2fedd0a2b76fb978035cb33952004bdd6136e107bb343cb2c5ea56" +
+							"6eb0c3b0ba31b1d022ebf03d0abf050ab293c0afd9c96003331aa13f18a" +
+							"7a47e2e1ccaa8feb7f3a236e92b2da38462358c48a"
+						);
+						const secret_prover_blind = Fr.fromBytes(fromHex("4fba5396baa36b2fde81d46a9b9ee89c425dbc5e1ffd65c20249afb4abd37589"));
+						const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
+						const messages = [
+							fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"),
+							fromHex("c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80"),
+							fromHex("7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73"),
+							fromHex("77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c"),
+							fromHex("496694774c5604ab1b2544eababcf0f53278ff50"),
+							fromHex("515ae153e22aae04ad16f759e07237b4"),
+							fromHex("d183ddc6e2665aa4e2f088af"),
+							fromHex("ac55fb33a75909ed"),
+							fromHex("96012096"),
+							fromHex(""),
+						];
+						const committed_messages = [
+							fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
+							fromHex("a75d8b634891af92282cc81a675972d1929d3149863c1fc0"),
+							fromHex("835889a40744813a892eff9deb1edaeb"),
+							fromHex("e1ca9729410dc6ba"),
+							fromHex(""),
+						];
+
+						const disclosed_indexes = [0, 2, 4, 6, 8];
+						const disclosed_commitment_indexes = committed_messages.map((_, j) => j);
+						const proof = await BlindProofGen(
+							PK,
+							signature,
+							header,
+							presentation_header,
+							messages,
+							committed_messages,
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+							secret_prover_blind,
+						);
+
+						assert.equal(
+							toHex(proof),
+							"82a7815ebceefbfb5c1728c940b8ec6efe0d64c6c53c5b7e5a01a598f3e904b" +
+							"f4eb43f94f3c41c2c73bf86ad6b4d9a6f87b89bb4c08ab7d0aa1afa52de982f" +
+							"b5f173b88db16b09a25358489da59d7d8da1f603aa83b55a6664e276e8b2498" +
+							"5de93c5ee7b5fe52c329660f963fa3a26b9316aaddbdb83e764fdb4323be987" +
+							"0a9d7fa18c9136ad79d06f6de5e820631cd30a1739ba5dd8f204020cf071e8a" +
+							"1a5313e4a3eb1ba058c91f37f397976920eff270ff2bb79bdab9dd006752c91" +
+							"5b22e2fff4f362a1dd663b2a178bb7ae08d1a6251e39fb11ff14b24a237ff2d" +
+							"8be9fe8d0db493dc019535e53dd31c0608543fb69f9fb31d1483514e65edc9c" +
+							"5111281409df08b88d333e4cc76fc41a45e49767523813f5e585c562933a6d7" +
+							"fd8b664102bd4822ba062ccee37ea50a3c9e03fc642b84c7d422155b61d69e5" +
+							"a832e41169bb08748ac245be18e159be1bb343afc170483a8887fe5b889adc4" +
+							"3f410529c7fad530084b1cc90f8854d8bf402def3f90e525e4bc99b5b8b8095" +
+							"495651f2cb6844b91a7832744954ca5bbf9a4f9c863c6b3485ad58bdb54fa6c" +
+							"71058fe29296eab761ab1a2c4be2db749c40f173f8b2e03ec71a4d9d89d0667" +
+							"63fd6a055e6a9e42a3b6a153732a42a5be5bfd2cf85b7d"
+						);
+
+						const L = 10;
+						assert(await BlindProofVerify(
+							PK,
+							proof,
+							header,
+							presentation_header,
+							L,
+							disclosed_indexes.map(i => messages[i]),
+							disclosed_commitment_indexes.map(j => committed_messages[j]),
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+						));
+					});
+
+					it("valid half prover committed messages and half signer messages revealed proof", async () => {
+						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-valid-half-prover-committed-m
+						const signature = fromHex(
+							"862eb2fedd0a2b76fb978035cb33952004bdd6136e107bb343cb2c5ea56" +
+							"6eb0c3b0ba31b1d022ebf03d0abf050ab293c0afd9c96003331aa13f18a" +
+							"7a47e2e1ccaa8feb7f3a236e92b2da38462358c48a"
+						);
+						const secret_prover_blind = Fr.fromBytes(fromHex("4fba5396baa36b2fde81d46a9b9ee89c425dbc5e1ffd65c20249afb4abd37589"));
+						const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
+						const messages = [
+							fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"),
+							fromHex("c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80"),
+							fromHex("7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73"),
+							fromHex("77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c"),
+							fromHex("496694774c5604ab1b2544eababcf0f53278ff50"),
+							fromHex("515ae153e22aae04ad16f759e07237b4"),
+							fromHex("d183ddc6e2665aa4e2f088af"),
+							fromHex("ac55fb33a75909ed"),
+							fromHex("96012096"),
+							fromHex(""),
+						];
+						const committed_messages = [
+							fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
+							fromHex("a75d8b634891af92282cc81a675972d1929d3149863c1fc0"),
+							fromHex("835889a40744813a892eff9deb1edaeb"),
+							fromHex("e1ca9729410dc6ba"),
+							fromHex(""),
+						];
+
+						const disclosed_indexes = [0, 2, 4, 6, 8];
+						const disclosed_commitment_indexes = [0, 2, 4];
+						const proof = await BlindProofGen(
+							PK,
+							signature,
+							header,
+							presentation_header,
+							messages,
+							committed_messages,
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+							secret_prover_blind,
+						);
+
+						assert.equal(
+							toHex(proof),
+							"906a557b649ef5fa3ae1b17f814bbf1e78936daed6ac985416ce97bdaada5e8" +
+							"74d60f34074c5f2a8c02b1c33c3cb041294aa3da2e1bb55674a4b94d860f347" +
+							"7be7eb1adb763894796b285df22112a153ad13c35e4b9707046de269833e27c" +
+							"16d9621b73f05e4c7c543bf995e76ac1013839c6e8a9909b36e979192c5497b" +
+							"cc9fc534aa9296ec36ae43c398cdd328d3b606ebb0642786b508eb1d38893cf" +
+							"ffe8c9cff3c385644bd3641e0d1cbeda08bf16902d6dfeefa3ac8f8840a5f15" +
+							"5c54695b908e729b7f0d06fa9453d28746dfae608580fab158d2966ed54a3b5" +
+							"28346d72d49b0d69576b1094b3b14bfcba67af81c4467b424e9ac53fbf9cf8c" +
+							"a7c4cd20ac61243d61d91cd937eb82cb1524e38b24bd0ef235886c9f32e139f" +
+							"fe0b371bf1a310dd4a81bdda3994f1c2f85bd4b775dd2b716ad1a06e4b60444" +
+							"8a8bad5a75581b8c655652b284b1f727f52fe74ff501990b95918fdac4a00c3" +
+							"509bcb978370224b2c38aea21d811f30fcf623aa3f917ca0193ae9fd3ad3f82" +
+							"c7e1dd80c5712d280faa027b90d27ffb37fad3ea7bcc5c69885dfe74acfb072" +
+							"13d01cd974133e5f6c423d7e3fa118c590cbf5edac814486965aadec1620615" +
+							"6c97e37f7ebc837f9482f2b7c97e691bf80d0d4a02ccff38794349ef189ef7e" +
+							"7c909dc0c420236abac3be7613c66e41dee0a3246a759225c2e5be0db5131fe" +
+							"e3e284bb3bdc98ff34eccb03eb70cac6b8aedef376110de7"
+						);
+
+						const L = 10;
+						assert(await BlindProofVerify(
+							PK,
+							proof,
+							header,
+							presentation_header,
+							L,
+							disclosed_indexes.map(i => messages[i]),
+							disclosed_commitment_indexes.map(j => committed_messages[j]),
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+						));
+					});
+
+					it("valid no prover committed messages and half signer messages revealed proof", async () => {
+						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-valid-no-prover-committed-mes
+						const signature = fromHex(
+							"862eb2fedd0a2b76fb978035cb33952004bdd6136e107bb343cb2c5ea56" +
+							"6eb0c3b0ba31b1d022ebf03d0abf050ab293c0afd9c96003331aa13f18a" +
+							"7a47e2e1ccaa8feb7f3a236e92b2da38462358c48a"
+						);
+						const secret_prover_blind = Fr.fromBytes(fromHex("4fba5396baa36b2fde81d46a9b9ee89c425dbc5e1ffd65c20249afb4abd37589"));
+						const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
+						const messages = [
+							fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"),
+							fromHex("c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80"),
+							fromHex("7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73"),
+							fromHex("77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c"),
+							fromHex("496694774c5604ab1b2544eababcf0f53278ff50"),
+							fromHex("515ae153e22aae04ad16f759e07237b4"),
+							fromHex("d183ddc6e2665aa4e2f088af"),
+							fromHex("ac55fb33a75909ed"),
+							fromHex("96012096"),
+							fromHex(""),
+						];
+						const committed_messages = [
+							fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
+							fromHex("a75d8b634891af92282cc81a675972d1929d3149863c1fc0"),
+							fromHex("835889a40744813a892eff9deb1edaeb"),
+							fromHex("e1ca9729410dc6ba"),
+							fromHex(""),
+						];
+
+						const disclosed_indexes = [0, 2, 4, 6, 8];
+						const disclosed_commitment_indexes = [];
+						const proof = await BlindProofGen(
+							PK,
+							signature,
+							header,
+							presentation_header,
+							messages,
+							committed_messages,
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+							secret_prover_blind,
+						);
+
+						assert.equal(
+							toHex(proof),
+							"98805466f2fb4858dd9f60cfdc24d73b5192df64fce827b6ce942a6f2c8d5b3" +
+							"3f7eb7bf178353cf4bac91a4d6b84b536a89f504e4b46dea57ed2bc29d83993" +
+							"d71fb0b5a012d36aa8c3f0ba25220435be5f1b632166228bbb496eaebc1e382" +
+							"67eb46b5550d6e4d32d2f5559ada94828f729cac8f192a8fdb7aac7ffcf0102" +
+							"fef68314723ded1927965f30096e5f89103a036f32fb9980015f9d7781f86e6" +
+							"61e90d7b01f4c4c1bca0f7e0101098d9abcb603c3945c14b8cb298eecda9e7a" +
+							"8271dd407e68a45c4d2d4842b7095392873ccb4f2a0136ed04e9410b8c65ece" +
+							"d108f5b87b9c5b84c5ff95d3345f410d8a0efd51b5d24978c578859f2183cac" +
+							"affc17c031c24dc58ffc29d46922e16672140d1b078b8e7e9f87d31663ee497" +
+							"90274b2735bc807562c8e76f3223925ad2c15093e118ed7ec82eb590d8a9227" +
+							"408339f4091363da652e68cdf02c0003c94e35a2085d621447c2b0840b22af2" +
+							"a5d62fea5e898dba51d93bdd5f23c6b448f722d95d70459fd68f59b617adeb6" +
+							"2b0441745b0d69e865e0fc956359e137cf4706286a9764e6b7efd431cde5988" +
+							"76b992196c15662ba6c6768ad0ed4291963ac304dfa951c41d7233d6d85d2a9" +
+							"ff903468590ea787d413205b56d1892fa666230c93a87756d96fe3832930f01" +
+							"826651f8f449a945c0a3a9b50472c2060eceb566ec39961685560f49c36b500" +
+							"31dc8b4339da942e5c25498919a812209bbff527c332a5e50f27a539f805caa" +
+							"7c1a774034906d2aae0b6c2db4696d3ed91453ea0f1e42d4129a9812dbddec7" +
+							"1d55d3ec1598202db88e15f3ad7f8eef3098102be8f978785e2327ce643cc12" +
+							"df227ef05f13ab395a6d318c59e2195d410e768cdf9e7a1784c"
+						);
+
+						const L = 10;
+						assert(await BlindProofVerify(
+							PK,
+							proof,
+							header,
+							presentation_header,
+							L,
+							disclosed_indexes.map(i => messages[i]),
+							disclosed_commitment_indexes.map(j => committed_messages[j]),
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+						));
+					});
+
+					it("valid half prover committed messages and no signer messages revealed proof", async () => {
+						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-valid-half-prover-committed-me
+						const signature = fromHex(
+							"862eb2fedd0a2b76fb978035cb33952004bdd6136e107bb343cb2c5ea56" +
+							"6eb0c3b0ba31b1d022ebf03d0abf050ab293c0afd9c96003331aa13f18a" +
+							"7a47e2e1ccaa8feb7f3a236e92b2da38462358c48a"
+						);
+						const secret_prover_blind = Fr.fromBytes(fromHex("4fba5396baa36b2fde81d46a9b9ee89c425dbc5e1ffd65c20249afb4abd37589"));
+						const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
+						const messages = [
+							fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"),
+							fromHex("c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80"),
+							fromHex("7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73"),
+							fromHex("77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c"),
+							fromHex("496694774c5604ab1b2544eababcf0f53278ff50"),
+							fromHex("515ae153e22aae04ad16f759e07237b4"),
+							fromHex("d183ddc6e2665aa4e2f088af"),
+							fromHex("ac55fb33a75909ed"),
+							fromHex("96012096"),
+							fromHex(""),
+						];
+						const committed_messages = [
+							fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
+							fromHex("a75d8b634891af92282cc81a675972d1929d3149863c1fc0"),
+							fromHex("835889a40744813a892eff9deb1edaeb"),
+							fromHex("e1ca9729410dc6ba"),
+							fromHex(""),
+						];
+
+						const disclosed_indexes = [];
+						const disclosed_commitment_indexes = [0, 2, 4];
+						const proof = await BlindProofGen(
+							PK,
+							signature,
+							header,
+							presentation_header,
+							messages,
+							committed_messages,
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+							secret_prover_blind,
+						);
+
+						assert.equal(
+							toHex(proof),
+							"aff98a4a0bc336e459d47c19816f372de628581bc626fdd20e907db10d2218d" +
+							"d47530fbebc78afed77f2557d344d620d9097016e84b0dc7588686bbeacb44f" +
+							"c55bb3004bf79e89d82ed37df3e1835975cc63a00b76685eecc4aff51426fb4" +
+							"3cb87d8ba852fb786f1cf649271517bcc4bb72af3e3b2fa4ae57bea485b6f98" +
+							"86fe33d0e5bd95d21f4ccaa4d80b64692caa23d32c7368ef99f1b9ab1672ecb" +
+							"3ae7393a3a4d3efa6f4dc18d8563788f97d8b3fb7427593bdc21aed4332d17b" +
+							"94d82b8c20ea1236a756a4ec2cfa5e1050588e04582299196c1f28e04c2349c" +
+							"5d9e717ba6a581ed255f20bf4210f852d2cd95844fdaacf4d8339a14fe7982b" +
+							"e4f447812616433a3e23990c180ec2540c13f9d467e996cd9a2df2bdd1b0bfe" +
+							"3e51c116e13888d21e26ee61d7ca070968bc13e9d3d33dce20dfc52618bfa4d" +
+							"340f558660f41d67d11f5af9a1e185f261a2d14eb667987d700ce77ed24e3b7" +
+							"0c29e49c188b5963dfb16ab7c2439ec6824f738e3df128865e180a41b06b1db" +
+							"ad2eed8a82728fc4dd34046410345c38415d9daaa3076efbbf84b8f3c52c2bf" +
+							"527d10ae882b0790a7f3b6b3e2c877fbb5a7d18bda860278598f1a83c855e67" +
+							"e3b8f8d807b29514d2420753ace9356a39e70fe49c5f2e29cea65820b57f3b2" +
+							"5363685a5559c577ca48046d5eaa35568a935f58dbd9dae2744eb4dfe33cbb6" +
+							"6bc2b351f2b634f508fe2e37ae19c89f14b4d6d6f636890d62e0f4ccb9565d4" +
+							"f8786b429188c7351f08538aff7b760da7867683315700ab549b639a59b9025" +
+							"fbf67ffb34a834d8b9e893d9d5969e9022813c4529115e682758166b4d2b8af" +
+							"72f44b00dff7b769bb985c40bef59e18034febfd7bb5ee847b13160b0da82b2" +
+							"8cd400c53ff004038e67b9fd49511f9e8b69df923f3aa73fb1636f1ee88214b" +
+							"dcd79462a1f7411e0c8ab10a8bba0140c9cddfbcdc88d7ca19dfd"
+						);
+
+						const L = 10;
+						assert(await BlindProofVerify(
+							PK,
+							proof,
+							header,
+							presentation_header,
+							L,
+							disclosed_indexes.map(i => messages[i]),
+							disclosed_commitment_indexes.map(j => committed_messages[j]),
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+						));
+					});
+
+					it("valid no prover committed messages and no signer messages revealed proof", async () => {
+						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-valid-no-prover-committed-mess
+						const signature = fromHex(
+							"862eb2fedd0a2b76fb978035cb33952004bdd6136e107bb343cb2c5ea56" +
+							"6eb0c3b0ba31b1d022ebf03d0abf050ab293c0afd9c96003331aa13f18a" +
+							"7a47e2e1ccaa8feb7f3a236e92b2da38462358c48a"
+						);
+						const secret_prover_blind = Fr.fromBytes(fromHex("4fba5396baa36b2fde81d46a9b9ee89c425dbc5e1ffd65c20249afb4abd37589"));
+						const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
+						const messages = [
+							fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"),
+							fromHex("c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80"),
+							fromHex("7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73"),
+							fromHex("77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c"),
+							fromHex("496694774c5604ab1b2544eababcf0f53278ff50"),
+							fromHex("515ae153e22aae04ad16f759e07237b4"),
+							fromHex("d183ddc6e2665aa4e2f088af"),
+							fromHex("ac55fb33a75909ed"),
+							fromHex("96012096"),
+							fromHex(""),
+						];
+						const committed_messages = [
+							fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
+							fromHex("a75d8b634891af92282cc81a675972d1929d3149863c1fc0"),
+							fromHex("835889a40744813a892eff9deb1edaeb"),
+							fromHex("e1ca9729410dc6ba"),
+							fromHex(""),
+						];
+
+						const disclosed_indexes = [];
+						const disclosed_commitment_indexes = [];
+						const proof = await BlindProofGen(
+							PK,
+							signature,
+							header,
+							presentation_header,
+							messages,
+							committed_messages,
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+							secret_prover_blind,
+						);
+
+						assert.equal(
+							toHex(proof),
+							"b27d9bc8c52a582d00db93da283346751c8da54a902703110e511fa39f184ed" +
+							"6c464d78c81d4bbcc57b7de1b31c7644184ba8f06266dfa8b2662b756f8c89b" +
+							"f3b01f7f66753028dc0ca85a0417a4f6d9dae4b393aaf5c152734f210a790a5" +
+							"f96a2ad1aaab7c1f5167484d18bf19570e2fa4d58b481225a1a576286bac7e4" +
+							"353aa7cba80939eabc492347fc05f8bd701f5410ecb5faf54d4a617bddf39bc" +
+							"b314d750257e99db7f0b03d043f8674668479322dc83c5c1e9e05dd760a4e1b" +
+							"5c45a044072bfe4e0f21bea9cc6362a38664532b4e10d0e7c4751452ff30724" +
+							"70b6919bded88d3e591e96a4b71603944015ca36594432351d9de6309820d5a" +
+							"837e28e690b662a959833fd51faf6b77e7636f206385eee2d3aa1d99758e1ef" +
+							"310a914f1a9fa3cd8eb2feb170c13de8e36de2dd2726430e0782cd0d5eaef64" +
+							"d11bd871eb27b6b2a9536a4189731b32cd16ee25ba305ee01d99689e66534d5" +
+							"8399a514b92813873ed28f377679f3aab6e977d62226dd4fa0eef43f7b69f92" +
+							"ca0d69588fb8339ba0b35d1fbc3623fdf2d761fa537d54b0b2cd094a8bf98f1" +
+							"117a8f665c5f68f101926f729185a6d830894f4864f606d47b5b5fab349b23b" +
+							"9be04443d1d6bef67a1755bcb5ac2d46e8af259bc449ce19edc5a4a20f5d236" +
+							"bf6089012df8021ebb68c756aa85528a98aa758a5524cf71ccc9867ec837576" +
+							"d092c68844d8ace281fd063343b212399dcd1cc80fd7cbd822e559df5616c81" +
+							"eb8e6e7768d8f9819b757d3a1f9211d047bdbb172c26e2e3f0a4541d7e30b05" +
+							"d25b6905abba445488543a16729090eb6d0a45cef159f17cea4ebdc307f9191" +
+							"d76dc52277cda93c0ae75d8021ced39b064229271d673cf28ec645ba56637ec" +
+							"f0f54982f78773cf3ae8514dfcd4932c41337c766e9d9e6041bd0a01062da4a" +
+							"d80106520b29888ca5c4893a8b447cf502e6672b038698bf1b7ae0d87c4e546" +
+							"ae98c7b6c21ad1fb56d54ee930ba9524c55705c00b05c3b6dd0c3f42ca9f9c0" +
+							"6748cdda8c1ca428122e780a80ae78c66c1d02728ea751dce0ac100134eed0a" +
+							"a579badf2131c90aea352b28586cd1dc6663008e9e38866a9f383aeb"
+						);
+
+						const L = 10;
+						assert(await BlindProofVerify(
+							PK,
+							proof,
+							header,
+							presentation_header,
+							L,
+							disclosed_indexes.map(i => messages[i]),
+							disclosed_commitment_indexes.map(j => committed_messages[j]),
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+						));
+					});
+
+					it("valid all prover committed messages and signer messages revealed proof", async ({ skip }) => {
+						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-valid-all-prover-committed-m
+						const signature = fromHex(
+							"8aa8fdfb190987d1fe1c8e34e69eae25594701958064e4483d74580a4a0" +
+							"f51f058a87735d727383b864904aa7b5e4a9b3821a18319df0ccb2e351a" +
+							"9bf75bf1f34d8858dde57119bfafd8ff56e0c54fa4"
+						);
+						const secret_prover_blind = null;
+						const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
+						const messages = [
+							fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"),
+							fromHex("c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80"),
+							fromHex("7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73"),
+							fromHex("77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c"),
+							fromHex("496694774c5604ab1b2544eababcf0f53278ff50"),
+							fromHex("515ae153e22aae04ad16f759e07237b4"),
+							fromHex("d183ddc6e2665aa4e2f088af"),
+							fromHex("ac55fb33a75909ed"),
+							fromHex("96012096"),
+							fromHex(""),
+						];
+						const committed_messages = null;
+
+						const disclosed_indexes = [0, 2, 4, 6, 8];
+						const disclosed_commitment_indexes = null;
+						skip("proof does not succeed");
+						const proof = await BlindProofGen(
+							PK,
+							signature,
+							header,
+							presentation_header,
+							messages,
+							committed_messages,
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+							secret_prover_blind,
+						);
+
+						skip("proof does not reproduce");
+						assert.equal(
+							toHex(proof),
+							"a8c57d443b888815e25ca197a543c3a007c573cea5d2cc3c7aa312dbe4aa33a" +
+							"62490ced4d8f5c0a99aeada24f79b2d34b32cb742dab22663402104828af5e0" +
+							"85a6019fb073e08374e9be9b1af64140a4d1ce2b8016f85ebca3ebb5aa02847" +
+							"b91936d649f19d0e85a19118e5e13e2beabf2d705e1db59f8945adddafc7731" +
+							"0b0a02042093a5477d9efd4a98cb2fad4dc535fa9f5e6a96f744ece30bbf1fc" +
+							"ca709d5b4fcc8c390b4e2ad755292cc20817141d9348e4a7d7c864493625c8a" +
+							"aa455c486afab64ae63f56c10b90047bbfa20825b2cb00f19ee3b54f7c7bdce" +
+							"a55f5811803b9cff2c2f2e96495dd12236e17c9581997b7880062715aa7deec" +
+							"4ca4b3b4eebba824cbe0adcba83f8e70bc0004ee350b5365138297983171d9c" +
+							"ca33ca2376157f390a724f857b4212fe834898d332a582083b8791969d2a070" +
+							"57722a22b44132c5fc2ed0035b3b2e71f9ec08ebc33e019a1fa76bd8d642da2" +
+							"1cd0a8b36080203c2c4d5b10411e90b8bebd454040556480519175f28f31210" +
+							"870454bfad2905d49e9b655b5bea6318955ba210938b279717a2b1e1d34cccf" +
+							"ddfe9c8e3729f6e92e28197a09459c6dcd56e3920a0d73954d79b681f1e93f7" +
+							"0566a73f42610c389ec3f0d65a4727229df891a61511d2"
+						);
+
+						const L = 10;
+						skip("proof does not verify");
+						assert(await BlindProofVerify(
+							PK,
+							proof,
+							header,
+							presentation_header,
+							L,
+							disclosed_indexes.map(i => messages[i]),
+							null,
+							disclosed_indexes,
+							disclosed_commitment_indexes,
+						));
 					});
 				});
 			});
