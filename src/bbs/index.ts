@@ -940,7 +940,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const msg = committed_scalars;
 
 			const [secret_prover_blind, s_tilde, ...m_tilde] = await calculate_random_scalars(M + 2);
-			const C = sumprod(blind_generators, [secret_prover_blind, ...m_tilde]);
+			const C = sumprod(blind_generators, [secret_prover_blind, ...msg]);
 			const Cbar = sumprod(blind_generators, [s_tilde, ...m_tilde]);
 			const challenge = await calculate_blind_challenge(C, Cbar, blind_generators, api_id);
 			const s_hat = Fr.add(s_tilde, Fr.mul(secret_prover_blind, challenge));
