@@ -37,6 +37,9 @@ function createSuite(suite: SuiteParams): CipherSuite {
 	}
 
 	function sumprod(points: PointG1[], scalars: bigint[]): PointG1 {
+		if (points.length !== scalars.length) {
+			throw new Error("Invalid input dimensions", { cause: { points, scalars } });
+		}
 		return sum(points.map((Hi, i) => Hi.multiply(scalars[i])));
 	}
 
