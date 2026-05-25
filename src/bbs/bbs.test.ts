@@ -444,5 +444,63 @@ describe("Suite:", () => {
 				});
 			});
 		});
+
+		describe("Blind BBS", async () => {
+			const {
+				BlindBbs,
+				params: { curves: { G1 } },
+			} = suite;
+			const {
+				api_id,
+				Commit,
+				BlindSign,
+				VerifyBlindSign,
+				BlindProofGen,
+				BlindProofVerify,
+			} = BlindBbs;
+
+			describe("create_generators (non-blind)", () => {
+				const { create_unblind_generators } = BlindBbs;
+
+				it("passes test vectors", async () => {
+					// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-generators
+					const count = 11;
+					const generators = await create_unblind_generators(count);
+					const [Q1, ...H] = generators;
+
+					assert.equal(generators.length, count);
+					assert.equal(toHex(Q1.toBytes()), "8aa0382ea3cd294680e3425bb0bb9293210a4d3e94d8ba59096fcb24eb9b56546645bea83e170b078ff3cc5aeac18c49");
+					assert.equal(toHex(H[0].toBytes()), "8065ec88f9bbee345b44e7825b2d602c91b0398b7c885d722450459c26efb1619eb4249428644b9e3d8d11d469d0c62b");
+					assert.equal(toHex(H[1].toBytes()), "b96f3af9abcd3ee2228fbe97d4e5a0ef10aaf655c6889e284f27a732492ecdb64a91f92dbaa93f2a7fb550659935985f");
+					assert.equal(toHex(H[2].toBytes()), "a99d1b53cc51738a46a7e1fe9b9d89a57977154dcccb7ce741eb779bf69ff655b110f0e97c4715616401e5a47d2c373a");
+					assert.equal(toHex(H[3].toBytes()), "9791c624fec3d688975f9c9143f066404115e0dcc1e318ef4f5290c0103ee4a2857dbf9347d997ee507ab629216797f6");
+					assert.equal(toHex(H[4].toBytes()), "8a472740d4968c831a3ad3d3c55ada8aca8478e4d0698ece52eff445d15aec1a479332e34562e80831b9593c85b435ec");
+					assert.equal(toHex(H[5].toBytes()), "b5102a6529b39de47c136de78a8697395e11013f8aa91f695f158009b52985adee67a63fc354846b7f4b944349295c95");
+					assert.equal(toHex(H[6].toBytes()), "845df3031a580f6c58b6d324f42f2158088a924dab9e77151851408a8bda31c266000c10bc47cc38aa3ac24dad22462c");
+					assert.equal(toHex(H[7].toBytes()), "b4296c820736cafb7c9229cf499788314a4578de69e88832ca39babe36c48073e61968ae320f9bae61079724a5271eac");
+					assert.equal(toHex(H[8].toBytes()), "9253f55dacd9e144f6da37f4adb420773325d142d900a6ae7de851c2643532e0b9181ae3ee02fe8c123b10dd12822876");
+					assert.equal(toHex(H[9].toBytes()), "979a52e753c367e3baa8826e7b74a23856abca5468ba5ce5719b4c57eb7e9ee879935f98fbd6959661d3e866477063b2");
+				});
+			});
+
+			describe("create_generators (blind)", () => {
+				const { create_blind_generators } = BlindBbs;
+
+				it("passes test vectors", async () => {
+					// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-blind-generators
+					const count = 6;
+					const generators = await create_blind_generators(count);
+					const [Q2, ...J] = generators;
+
+					assert.equal(generators.length, count);
+					assert.equal(toHex(Q2.toBytes()), "a347532dc0ba9b83e4f15f3eeb7dffd934f5fa4668d927fbcb68096d5a26f6e59f66681201be1c263af1a25b6749759c");
+					assert.equal(toHex(J[0].toBytes()), "af590ba56aa0e526a0763ae6926347dce988ffb9cc1a0b4510ada06fe08816f5c36a6c7007cc8558e5793f9a2cbae462");
+					assert.equal(toHex(J[1].toBytes()), "a9a6e5f3093823745734a2195d80886f47185be6a3e4d00df2bd5996aa9d664e34244ea15e9ad4c41d8825331fcfd5a3");
+					assert.equal(toHex(J[2].toBytes()), "a6c1a8fd251a338e25d3ea4e09334ea250f0257783f2be4ce4406798ea9acbce41e7648c7fb1409fcd822396f652c4e7");
+					assert.equal(toHex(J[3].toBytes()), "80d1232ee4a5623d7ac5a3912c555f9f6f34716edfe156ae40b6ac19afba58dd18556e49529e39da91aa806c9c55d493");
+					assert.equal(toHex(J[4].toBytes()), "b8775d3d2f58cafd808d135de79367f34c9ad22a6a878631fd0b1383541999b16b6f3bae96ab51bb4ab25caf69462473");
+				});
+			});
+		});
 	});
 });
