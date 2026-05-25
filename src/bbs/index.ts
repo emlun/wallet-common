@@ -437,7 +437,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const L = messages.length;
 			let M = commitment_with_proof.byteLength;
 			if (M !== 0) {
-				M = M - octet_point_length - octet_scalar_length;
+				M = M - octet_point_length - 2 * octet_scalar_length;
 			}
 			M = M / octet_scalar_length;
 			if (M < 0) {
@@ -445,12 +445,16 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			}
 
 			const generators = await create_unblind_generators(L + 1);
+			const [Q_1, ...H_Points] = generators;
 			const blind_generators = await create_blind_generators(M + 1);
+			const [Q_2, ...J] = blind_generators;
+			const domain = await calculate_domain(PK, Q_1, [...H_Points, Q_2, ...J], header, api_id);
 			const commit = await deserialize_and_validate_commit(commitment_with_proof, blind_generators, api_id);
 			const message_scalars = await messages_to_scalars(messages, api_id);
-			const res = B_calculate(generators, commit, message_scalars);
+			const res = B_calculate(generators, domain, commit, message_scalars);
 			const [B] = res;
-			const blind_sig = FinalizeBlindSign(SK, PK, B, generators, blind_generators, header, api_id);
+			// const blind_sig = FinalizeBlindSign(SK, PK, B, generators, blind_generators, header, api_id);
+			const blind_sig = FinalizeBlindSign(SK, domain, B, api_id);
 			return blind_sig;
 		}
 
@@ -553,7 +557,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			disclosed_indexes = disclosed_indexes ?? [];
 			disclosed_committed_indexes = disclosed_committed_indexes ?? [];
 
-			const proof_len_floor = 2 * octet_point_length + 3 * octet_scalar_length;
+			const proof_len_floor = 3 * octet_point_length + 4 * octet_scalar_length;
 			if (proof.byteLength < proof_len_floor) {
 				throw new Error(`Proof too short: expected at least ${proof_len_floor} octets, was ${proof.byteLength}`, { cause: { proof, proof_len_floor } });
 			}
@@ -628,24 +632,25 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-finalize-blind-sign */
 		async function FinalizeBlindSign(
 			SK: bigint,
-			PK: BufferSource,
+			// PK: BufferSource,
+			domain: bigint,
 			B: PointG1,
-			generators: PointG1[],
-			blind_generators: PointG1[],
-			header: BufferSource,
+			// generators: PointG1[],
+			// blind_generators: PointG1[],
+			// header: BufferSource,
 			api_id: BufferSource,
 		): Promise<BufferSource> {
 			const signature_dst = concat(api_id, toUtf8("H2S_"));
 
-			const L = generators.length - 1;
-			const M = blind_generators.length - 1;
-			if (L <= 0 || M <= 0) {
-				throw new Error("Invalid number of generators", { cause: { generators, blind_generators } });
-			}
-			const [Q_1, ...H_Points] = generators;
-			const [Q_2, ...J] = blind_generators;
+			// const L = generators.length - 1;
+			// const M = blind_generators.length - 1;
+			// if (L < 0 || M < 0) {
+			// 	throw new Error("Invalid number of generators", { cause: { generators, blind_generators } });
+			// }
+			// const [Q_1, ...H_Points] = generators;
+			// const [Q_2, ...J] = blind_generators;
 
-			const domain = await calculate_domain(PK, Q_1, [...H_Points, ...J], header, api_id);
+			// const domain = await calculate_domain(PK, Q_1, [...H_Points, Q_2, ...J], header, api_id);
 			const e_octs = serialize([SK, B, domain]);
 			const e = await hash_to_scalar(e_octs, signature_dst);
 			const A = B.multiply(Fr.inv(Fr.add(SK, e)));
@@ -683,6 +688,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-calculate-b-value */
 		function B_calculate(
 			generators: PointG1[],
+			domain: bigint,
 			commitment: PointG1,
 			message_scalars: bigint[],
 		): [PointG1] {
@@ -692,7 +698,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			}
 			const [Q_1, ...H_Points] = generators;
 			const msg = message_scalars;
-			const B = sumprod([Q_1, ...H_Points, commitment], [1n, ...msg, 1n]);
+			const B = sumprod([P1, Q_1, ...H_Points, commitment], [1n, domain, ...msg, 1n]);
 			if (B.is0()) {
 				throw new Error("B must not be Identity_G1", { cause: { generators, commitment, message_scalars } });
 			}
