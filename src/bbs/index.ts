@@ -4,7 +4,7 @@ import type { BlsCurvePair } from "@noble/curves/abstract/bls";
 import type { Fp2 } from "@noble/curves/abstract/tower";
 import { bls12_381 } from "@noble/curves/bls12-381.js";
 
-import { concat, fromHex, I2OSP, OS2IP, toHex, toU8 } from "../utils/util";
+import { concat, fromHex, I2OSP, OS2IP, toHex, toU8, toUtf8 } from "../utils/util";
 import { hashToCurve, sha256, HashToCurveSuite } from "../arkg/hash_to_curve";
 import { WeierstrassPoint } from "@noble/curves/abstract/weierstrass";
 
@@ -29,9 +29,9 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		sig_generator_dst,
 		message_generator_seed,
 	} = suite.create_generators_dsts ?? {
-		sig_generator_seed: new TextEncoder().encode("SIG_GENERATOR_SEED_"),
-		sig_generator_dst: new TextEncoder().encode("SIG_GENERATOR_DST_"),
-		message_generator_seed: new TextEncoder().encode("MESSAGE_GENERATOR_SEED"),
+		sig_generator_seed: toUtf8("SIG_GENERATOR_SEED_"),
+		sig_generator_dst: toUtf8("SIG_GENERATOR_DST_"),
+		message_generator_seed: toUtf8("MESSAGE_GENERATOR_SEED"),
 	};
 
 	const { expand_message, prime_subgroup_order } = suite.hash_to_curve_suite.suiteParams;
@@ -107,7 +107,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		header: BufferSource,
 		api_id: BufferSource,
 	): Promise<bigint> {
-		const hash_to_scalar_dst = concat(api_id, new TextEncoder().encode("H2S_"));
+		const hash_to_scalar_dst = concat(api_id, toUtf8("H2S_"));
 		const two64min1 = (1n << 64n) - 1n;
 		const L = H_Points.length;
 		if (header.byteLength > two64min1) {
@@ -131,7 +131,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		if (messages.length >= Math.pow(2, 64)) {
 			throw new Error(`Too many messages: ${messages.length} >= 2^64`, { cause: { length: messages.length } });
 		}
-		const map_msg_to_scalar_as_hash = new TextEncoder().encode("MAP_MSG_TO_SCALAR_AS_HASH_");
+		const map_msg_to_scalar_as_hash = toUtf8("MAP_MSG_TO_SCALAR_AS_HASH_");
 		const map_dst = concat(api_id, map_msg_to_scalar_as_hash);
 
 		return Promise.all(messages.map(message => hash_to_scalar(message, map_dst)));
@@ -158,7 +158,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 	async function KeyGen(key_material: BufferSource, key_info: BufferSource | null, key_dst: BufferSource | null): Promise<bigint> {
 		key_material = key_material ?? new Uint8Array([]);
 		key_info = key_info ?? new Uint8Array([]);
-		const dst = key_dst ?? new TextEncoder().encode(suite.id + "KEYGEN_DST_");
+		const dst = key_dst ?? toUtf8(suite.id + "KEYGEN_DST_");
 
 		if (key_material.byteLength < 32) {
 			throw new Error(`key_material too short: ${toHex(key_material)}`, { cause: { key_material } });
@@ -408,7 +408,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			}
 
 			async function schnorr_KGen(ikm?: BufferSource): Promise<[bigint, PointG1]> {
-				const sk = await sample_scalar(new TextEncoder().encode("Schnorr.KGen"), ikm);
+				const sk = await sample_scalar(toUtf8("Schnorr.KGen"), ikm);
 				const pk = H0.multiply(sk);
 				return [sk, pk];
 			}
@@ -428,7 +428,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			/** Sign using SHA-256 as the hash function H, with rejection sampling to fall under the group order. */
 			async function schnorr_sign_sha256(sk: bigint, m: BufferSource): Promise<SchnorrNizkProof1> {
 				while (true) {
-					const omega = await sample_scalar(new TextEncoder().encode("Schnorr.Sign"));
+					const omega = await sample_scalar(toUtf8("Schnorr.Sign"));
 					const r = H0.multiply(omega);
 					const c = OS2IP(await sha256(serialize([r, m])));
 					if (c < Fr.ORDER) {
@@ -491,7 +491,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 					throw new Error("Y does not equal Mx", { cause: { M, Y, x } });
 				}
 				const omega = await Promise.all(range(n).map(i =>
-					sample_scalar(concat(new TextEncoder().encode("Schnorr.NIZK.Prove.omega."), new Uint8Array([i])), ikm)
+					sample_scalar(concat(toUtf8("Schnorr.NIZK.Prove.omega."), new Uint8Array([i])), ikm)
 				));
 				const R = matrix_mul(M, omega);
 				const c = await hash_to_scalar(
@@ -501,7 +501,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 						...R,
 						ctx,
 					]),
-					new TextEncoder().encode("Schnorr.NIZK.Proof"),
+					toUtf8("Schnorr.NIZK.Proof"),
 				);
 				const s: bigint[] = omega.map((o, i) => (o + c * x[i]) % Fr.ORDER);
 				return [c, s];
@@ -523,7 +523,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 						...Ms.map((Msi, i) => Msi.subtract(Yc[i])),
 						ctx,
 					]),
-					new TextEncoder().encode("Schnorr.NIZK.Proof"),
+					toUtf8("Schnorr.NIZK.Proof"),
 				)) {
 					return true;
 				}
@@ -533,14 +533,14 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 			/** IssKGen procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
 			async function iss_kgen(ikm?: BufferSource): Promise<[bigint, PointG2]> {
-				const isk = await sample_scalar(new TextEncoder().encode("IssKGen"), ikm);
+				const isk = await sample_scalar(toUtf8("IssKGen"), ikm);
 				const ipk = G2.Point.BASE.multiply(isk);
 				return [isk, ipk];
 			}
 
 			/** DevKGen procedure of BBS-Schnorr proposed in https://eprint.iacr.org/2025/1995 */
 			async function dev_kgen(ikm?: BufferSource): Promise<[bigint, PointG1]> {
-				const dsk = await sample_scalar(new TextEncoder().encode("DevKGen"), ikm);
+				const dsk = await sample_scalar(toUtf8("DevKGen"), ikm);
 				const dpk = H0.multiply(dsk);
 				return [dsk, dpk];
 			}
@@ -552,7 +552,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				attrs: bigint[],
 				ikm?: BufferSource,
 			): Promise<[PointG1, bigint]> {
-				const e = await sample_scalar(new TextEncoder().encode("Issue"), ikm);
+				const e = await sample_scalar(toUtf8("Issue"), ikm);
 				const C = G1.Point.BASE.add(dpk).add(sumprod(Hi, attrs));
 				const A = C.multiply(Fr.inv(isk + e));
 				return [A, e];
@@ -647,7 +647,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 					throw new Error("Invalid disclosed indexes", { cause: { disclose_idx, attrs } });
 				}
 
-				const r_key = await sample_scalar(new TextEncoder().encode("ShowUser1.r_key"), ikm);
+				const r_key = await sample_scalar(toUtf8("ShowUser1.r_key"), ikm);
 				const dpkbar = schnorr_re_rand_pk(dpk, r_key);
 				const umsg = dpkbar;
 				const ust: BbsSchnorrUst = [ipk, dpk, dpkbar, r_key, sigma, attrs, ctx, disclose_idx, ikm];
@@ -674,8 +674,8 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				const non_disclose_idx = range(l).filter(i => !disclose_idx.includes(i));
 				const pi_se = schnorr_adapt_sig(schnorr_parse_signature(smsg), r_key, serialize([dpkbar, ctx]));
 				const [A, e] = sigma;
-				const r1 = await sample_scalar(new TextEncoder().encode("ShowUser2.r1"), ikm);
-				const r2 = await sample_scalar(new TextEncoder().encode("ShowUser2.r2"), ikm);
+				const r1 = await sample_scalar(toUtf8("ShowUser2.r1"), ikm);
+				const r2 = await sample_scalar(toUtf8("ShowUser2.r2"), ikm);
 				const C = G1.Point.BASE.add(dpk).add(sumprod(Hi, attrs));
 				const Cbar = C.multiply(r1);
 				const Abar = A.multiply(r2).multiply(r1);
@@ -731,7 +731,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		messages: bigint[],
 		api_id: BufferSource,
 	): Promise<BufferSource> {
-		const hash_to_scalar_dst = concat(api_id, new TextEncoder().encode("H2S_"));
+		const hash_to_scalar_dst = concat(api_id, toUtf8("H2S_"));
 
 		const L = messages.length;
 		if (generators.length !== L + 1) {
@@ -964,7 +964,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		ph: BufferSource,
 		api_id: BufferSource,
 	): Promise<bigint> {
-		const hash_to_scalar_dst = concat(api_id, new TextEncoder().encode("H2S_"));
+		const hash_to_scalar_dst = concat(api_id, toUtf8("H2S_"));
 
 		const R = disclosed_indexes.length;
 		if (disclosed_messages.length !== R) {
@@ -993,7 +993,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		create_generators,
 		KeyGen,
 		SkToPk,
-		Bbs: Bbs(new TextEncoder().encode(suite.id + "H2G_HM2S_")),
+		Bbs: Bbs(toUtf8(suite.id + "H2G_HM2S_")),
 	};
 }
 
@@ -1126,7 +1126,7 @@ export function getCipherSuite(
 				id: 'BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_',
 				octet_scalar_length: 32,
 				octet_point_length: 48,
-				hash_to_curve_suite: hashToCurve('BLS12381G1_XMD:SHA-256_SSWU_RO_', new TextEncoder().encode('Irrelevant, unused')),
+				hash_to_curve_suite: hashToCurve('BLS12381G1_XMD:SHA-256_SSWU_RO_', toUtf8('Irrelevant, unused')),
 				hash_to_curve_g1: (msg: BufferSource, DST: BufferSource) =>
 					(bls12_381.G1.hashToCurve(toU8(msg), { DST: toU8(DST) }) as PointG1),
 				expand_len: 48,

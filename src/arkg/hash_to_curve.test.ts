@@ -1,6 +1,7 @@
 import { assert, describe, it } from "vitest";
 
 import { hashToCurve, SuiteId } from "./hash_to_curve";
+import { toUtf8 } from "../utils/util";
 
 
 function repeatStr(s: string, times: number): string {
@@ -128,12 +129,12 @@ describe("hashToCurve", () => {
 				);
 			});
 
-			const functionSuite = hashToCurve(suiteId as SuiteId, new TextEncoder().encode(DST));
+			const functionSuite = hashToCurve(suiteId as SuiteId, toUtf8(DST));
 			const { hashToCoordinateField } = functionSuite;
 
 			describe(`on the test vector`, async () => {
 				for (const { msg, expectU0, expectU1 } of tests) {
-					const msgBytes = new TextEncoder().encode(msg);
+					const msgBytes = toUtf8(msg);
 					const u_coordinate = await hashToCoordinateField(msgBytes, 2);
 
 					describe(`msg=${ellipsisize(msg, 24)}`, async () => {

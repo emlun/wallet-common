@@ -1,6 +1,6 @@
 import { assert, describe, it } from "vitest";
 
-import { concat, fromHex, toHex, toU8 } from "../utils/util";
+import { concat, fromHex, toHex, toU8, toUtf8 } from "../utils/util";
 import { asyncAssertThrows } from "../testutil";
 import { getCipherSuite, PointG1 } from ".";
 
@@ -50,7 +50,7 @@ describe("Suite:", () => {
 				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-key-pair-2
 				const key_material = fromHex("746869732d49532d6a7573742d616e2d546573742d494b4d2d746f2d67656e65726174652d246528724074232d6b6579");
 				const key_info = fromHex("746869732d49532d736f6d652d6b65792d6d657461646174612d746f2d62652d757365642d696e2d746573742d6b65792d67656e");
-				const key_dst = concat(Bbs.api_id, new TextEncoder().encode("KEYGEN_DST_"));
+				const key_dst = concat(Bbs.api_id, toUtf8("KEYGEN_DST_"));
 				const SK = await KeyGen(key_material, key_info, key_dst);
 				const PK = SkToPk(SK);
 
@@ -122,14 +122,14 @@ describe("Suite:", () => {
 					suiteId,
 					{
 						create_generators_dsts: {
-							sig_generator_seed: new TextEncoder().encode("H2G_HM2S_SIG_GENERATOR_SEED_"),
-							sig_generator_dst: new TextEncoder().encode("H2G_HM2S_SIG_GENERATOR_DST_"),
-							message_generator_seed: new TextEncoder().encode("H2G_HM2S_BP_MESSAGE_GENERATOR_SEED"),
+							sig_generator_seed: toUtf8("H2G_HM2S_SIG_GENERATOR_SEED_"),
+							sig_generator_dst: toUtf8("H2G_HM2S_SIG_GENERATOR_DST_"),
+							message_generator_seed: toUtf8("H2G_HM2S_BP_MESSAGE_GENERATOR_SEED"),
 						},
 					}
 				);
 
-				const api_id = new TextEncoder().encode(suiteId);
+				const api_id = toUtf8(suiteId);
 				const generators = await create_generators(1, api_id);
 
 				assert.equal(generators.length, 1);
@@ -293,7 +293,7 @@ describe("Suite:", () => {
 						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-mocked-random-scalars
 						mocked_random_scalars_params: {
 							SEED: fromHex("332e313431353932363533353839373933323338343632363433333833323739"),
-							DST: concat(defaultBbs.api_id, new TextEncoder().encode("MOCK_RANDOM_SCALARS_DST_")),
+							DST: concat(defaultBbs.api_id, toUtf8("MOCK_RANDOM_SCALARS_DST_")),
 						},
 					},
 				);
@@ -458,28 +458,28 @@ describe("Suite:", () => {
 
 				assert(vf_cred(ipk, sigma, dpk, attrs));
 
-				const [ust, umsg] = await show_user_1(ipk, dpk, sigma, attrs, new TextEncoder().encode("Hello, World!"), [1]);
-				const smsg = await show_se_1(ipk, dsk, umsg, new TextEncoder().encode("Hello, World!"));
+				const [ust, umsg] = await show_user_1(ipk, dpk, sigma, attrs, toUtf8("Hello, World!"), [1]);
+				const smsg = await show_se_1(ipk, dsk, umsg, toUtf8("Hello, World!"));
 				const tau = await show_user_2(ust, smsg);
 
-				const smsg2 = await show_se_1(ipk, dsk, umsg, new TextEncoder().encode("Hello, Worldz!"));
+				const smsg2 = await show_se_1(ipk, dsk, umsg, toUtf8("Hello, Worldz!"));
 				const tau2 = await show_user_2(ust, smsg2);
 
-				assert(await verify(ipk, new TextEncoder().encode("Hello, World!"), [1], [2n], tau));
-				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, World!"), [1], [2n], tau2), "Expected invalid proof to fail verification");
-				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, World!"), [], [], tau), "Expected too few attributes to fail verification");
-				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, World!"), [], [2n], tau), "Expected unmatched attributes and indices to fail verification");
-				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, World!"), [1], [1n], tau), "Expected incorrect attribute (1) to fail verification");
-				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, World!"), [1], [3n], tau), "Expected incorrect attribute (3) to fail verification");
-				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, Worldz!"), [1], [2n], tau), "Expected incorrect ctx to fail verification");
-				asyncAssertThrows(() => verify(ipk, new TextEncoder().encode("Hello, World!"), [0, 1], [1n, 2n], tau), "Expected disclosed-and-undisclosed attribute to fail verification");
-				asyncAssertThrows(() => verify(ipk.multiply(2), new TextEncoder().encode("Hello, World!"), [1], [2n], tau), "Expected incorrect issuer public key to fail verification");
+				assert(await verify(ipk, toUtf8("Hello, World!"), [1], [2n], tau));
+				asyncAssertThrows(() => verify(ipk, toUtf8("Hello, World!"), [1], [2n], tau2), "Expected invalid proof to fail verification");
+				asyncAssertThrows(() => verify(ipk, toUtf8("Hello, World!"), [], [], tau), "Expected too few attributes to fail verification");
+				asyncAssertThrows(() => verify(ipk, toUtf8("Hello, World!"), [], [2n], tau), "Expected unmatched attributes and indices to fail verification");
+				asyncAssertThrows(() => verify(ipk, toUtf8("Hello, World!"), [1], [1n], tau), "Expected incorrect attribute (1) to fail verification");
+				asyncAssertThrows(() => verify(ipk, toUtf8("Hello, World!"), [1], [3n], tau), "Expected incorrect attribute (3) to fail verification");
+				asyncAssertThrows(() => verify(ipk, toUtf8("Hello, Worldz!"), [1], [2n], tau), "Expected incorrect ctx to fail verification");
+				asyncAssertThrows(() => verify(ipk, toUtf8("Hello, World!"), [0, 1], [1n, 2n], tau), "Expected disclosed-and-undisclosed attribute to fail verification");
+				asyncAssertThrows(() => verify(ipk.multiply(2), toUtf8("Hello, World!"), [1], [2n], tau), "Expected incorrect issuer public key to fail verification");
 			});
 
 			it("works with a SE proof recorded from a hardware device.", async () => {
 				const { iss_kgen, issue, verify, vf_cred, show_user_1, show_user_2, schnorr_verify_sha256_encoded } = await BbsSchnorr({ l: 3 });
 
-				const ikm = new TextEncoder().encode("Test BBS-Schnorr with hardware device");
+				const ikm = toUtf8("Test BBS-Schnorr with hardware device");
 				const [isk, ipk] = await iss_kgen(ikm);
 
 				// The public key generated by the hardware device
@@ -505,7 +505,7 @@ describe("Suite:", () => {
 
 				assert(vf_cred(ipk, sigma, dpk, attrs));
 
-				const ctx = new TextEncoder().encode("Hello, World!");
+				const ctx = toUtf8("Hello, World!");
 				const [ust, umsg] = await show_user_1(ipk, dpk, sigma, attrs, ctx, [1], ikm);
 				const tbs = concat(umsg.toBytes(), ctx);
 
@@ -529,7 +529,7 @@ describe("Suite:", () => {
 			it("works with a SE proof on H1 recorded from a hardware device.", async () => {
 				const { iss_kgen, issue, verify, vf_cred, show_user_1, show_user_2, schnorr_verify_sha256_encoded } = await BbsSchnorr({ l: 3, dpk_uses_h1: true });
 
-				const ikm = new TextEncoder().encode("Test BBS-Schnorr with hardware device");
+				const ikm = toUtf8("Test BBS-Schnorr with hardware device");
 				const [isk, ipk] = await iss_kgen(ikm);
 
 				// The public key generated by the hardware device
@@ -555,7 +555,7 @@ describe("Suite:", () => {
 
 				assert(vf_cred(ipk, sigma, dpk, attrs));
 
-				const ctx = new TextEncoder().encode("Hello, World!");
+				const ctx = toUtf8("Hello, World!");
 				const [ust, umsg] = await show_user_1(ipk, dpk, sigma, attrs, ctx, [1], ikm);
 				const tbs = concat(umsg.toBytes(), ctx);
 

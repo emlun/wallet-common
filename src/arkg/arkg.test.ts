@@ -2,7 +2,7 @@ import { assert, describe, it } from "vitest";
 
 import { ArkgPublicSeed, EcInstanceId, getEcInstance } from '.';
 import * as ec from './ec';
-import { byteArrayEquals, concat, fromHex, toBase64, toHex } from '../utils/util';
+import { byteArrayEquals, concat, fromHex, toBase64, toHex, toUtf8 } from '../utils/util';
 import { asyncAssertThrows } from '../testutil';
 
 
@@ -23,7 +23,7 @@ describe("Assumptions:", async () => {
 				name: "HKDF",
 				hash: "SHA-256",
 				salt: new Uint8Array([]),
-				info: new TextEncoder().encode("assumption test"),
+				info: toUtf8("assumption test"),
 			},
 			key,
 			64 * 8,
@@ -33,7 +33,7 @@ describe("Assumptions:", async () => {
 				name: "HKDF",
 				hash: "SHA-256",
 				salt: zeroes32,
-				info: new TextEncoder().encode("assumption test"),
+				info: toUtf8("assumption test"),
 			},
 			key,
 			64 * 8,
@@ -74,7 +74,7 @@ describe("ARKG", async () => {
 
 			const [pub_seed, pri_seed] = await arkgInstance.deriveSeed(ikm_bl, ikm_kem);
 
-			const ctx = new TextEncoder().encode(instanceName + "test vectors");
+			const ctx = toUtf8(instanceName + "test vectors");
 			const [derived_pubk, kh] = await arkgInstance.derivePublicKey(pub_seed, ikm, ctx);
 
 			it("forbids ctx values longer than 64 bytes.", async () => {
@@ -201,7 +201,7 @@ describe("ARKG", async () => {
 						expectDerivedSkHex: string,
 					) {
 						it(ctx, async () => {
-							const ctxBytes = new TextEncoder().encode(ctx);
+							const ctxBytes = toUtf8(ctx);
 							const arkgInstance = getEcInstance('ARKG-P256');
 
 							const [seed_pk, seed_sk] = await arkgInstance.deriveSeed(fromHex(ikmBlHex), fromHex(ikmKemHex));
