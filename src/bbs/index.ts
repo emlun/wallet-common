@@ -738,7 +738,6 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			return create_generators(count, blind_api_id);
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-commitment-validation-and-d */
 		async function deserialize_and_validate_commit(
 			commitment_with_proof: BufferSource,
 			blind_generators: PointG1[],
@@ -1024,12 +1023,12 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			if (blind_generators.length !== M + N + 1) {
 				throw new Error("Invalid number of generators, messages, or points", { cause: { blind_generators, committed_scalars, committed_points } });
 			}
-			// const [Q2, ...J] = blind_generators;
+			const [Q2, ...J] = blind_generators;
 			const msg = committed_scalars;
 
 			const [secret_prover_blind, s_tilde, ...m_tilde] = await calculate_random_scalars(M + 2);
-			const C = sumprod(blind_generators.slice(N + 1), [secret_prover_blind, ...msg]);
-			const Cbar = sumprod(blind_generators.slice(N + 1), [s_tilde, ...m_tilde]);
+			const C = sumprod([Q2, ...J.slice(N)], [secret_prover_blind, ...msg]);
+			const Cbar = sumprod([Q2, ...J.slice(N)], [s_tilde, ...m_tilde]);
 			const challenge = await calculate_blind_challenge(C, Cbar, blind_generators, committed_points, commit_header, api_id);
 			const s_hat = Fr.add(s_tilde, Fr.mul(secret_prover_blind, challenge));
 			const m_hat = m_tilde.map((m_tilde_i, i) => (Fr.add(m_tilde_i, Fr.mul(msg[i], challenge))));
@@ -1092,19 +1091,20 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				throw new Error("Invalid number of generators, commitments or point proofs", { cause: { blind_generators, commitments, committed_point_proofs } });
 			}
 
-			const Cbar = sumprod([...blind_generators.slice(N + 1), commitment], [s_hat, ...m_hat, Fr.neg(cp)]);
+			const [Q2, ...J] = blind_generators;
+			const Cbar = sumprod([Q2, ...J.slice(N), commitment], [s_hat, ...m_hat, Fr.neg(cp)]);
 			const cv = await calculate_blind_challenge(commitment, Cbar, blind_generators, committed_points, commit_header, api_id);
 			if (cv === cp) {
 				if (
 					(await Promise.all(committed_point_proofs.map(async ([k_hat, c], j) => {
-						const J = blind_generators[1 + j];
+						const Jj = J[j];
 						const K = committed_points[j];
-						const R_hat = J.multiply(k_hat).add(K.multiply(Fr.neg(c)));
+						const R_hat = Jj.multiply(k_hat).add(K.multiply(Fr.neg(c)));
 						const cv = await hash_to_scalar(serialize([R_hat, cp]), new Uint8Array([]));
 						if (cv === c) {
 							return true;
 						}
-						throw new Error("Invalid point proof", { cause: { J, K, k_hat, c, R_hat, cv } });
+						throw new Error("Invalid point proof", { cause: { Jj, K, k_hat, c, R_hat, cv } });
 					}))).every(result => result === true)
 				) {
 					return true;
