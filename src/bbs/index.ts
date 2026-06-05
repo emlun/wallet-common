@@ -1232,12 +1232,12 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 			const c_arr = [
 				M,
-				N,
+				// N,
 				...generators,
-				...committed_points,
+				// ...committed_points,
 				C,
 				Cbar,
-				I2OSP(commit_header.byteLength, 8),
+				// I2OSP(commit_header.byteLength, 8), //TODO: Uncomment this
 				commit_header,
 			];
 			const c_octs = serialize(c_arr);
@@ -1251,8 +1251,8 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const [C, K] = commitment;
 			const [s_hat, m_hat, challenge, point_proofs] = proof;
 			const proof_octs = serialize([
-				m_hat.length,
-				K.length,
+				// m_hat.length,
+				// K.length,
 				C,
 				...K,
 				s_hat,
@@ -1271,12 +1271,16 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				throw new Error(`Commitment with proof too short: expected at least ${commit_len_floor} octets, was ${commitment_octs.byteLength}`, { cause: { commitment_octs, commit_len_floor } });
 			}
 
-			const [[M_octs, N_octs], MN_tail] = split_sections(commitment_octs, [8, 8]);
-			const M = Number(OS2IP(M_octs));
-			const N = Number(OS2IP(N_octs));
+			// const [[M_octs, N_octs], MN_tail] = split_sections(commitment_octs, [8, 8]);
+			const [[M_octs, N_octs], MN_tail] = split_sections(commitment_octs, [0, 0]);
+			// const M = Number(OS2IP(M_octs));
+			// const N = Number(OS2IP(N_octs));
+			const N = 0;
+			const M = (commitment_octs.byteLength - commit_len_floor) / octet_scalar_length;
 
 			const commitment_length = (
-				8 + 8
+				// 8 + 8
+				0
 				+ octet_point_length
 				+ N * octet_point_length
 				+ octet_scalar_length
