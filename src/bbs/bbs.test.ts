@@ -508,7 +508,7 @@ describe("Suite:", () => {
 
 					it("valid no committed messages commitment with proof", async () => {
 						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-valid-no-committed-messages
-						const [commitment_with_proof, secret_prover_blind] = await Commit([]);
+						const [commitment_with_proof, secret_prover_blind] = await Commit([], null);
 
 						// TODO: Update test vectors
 						// assert.equal(
@@ -530,7 +530,7 @@ describe("Suite:", () => {
 							fromHex("835889a40744813a892eff9deb1edaeb"),
 							fromHex("e1ca9729410dc6ba"),
 							fromHex(""),
-						]);
+						], null);
 
 						// TODO: Update test vectors
 						// assert.equal(
