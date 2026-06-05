@@ -778,7 +778,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			commit_header = commit_header ?? new Uint8Array([]);
 
 			const committed_message_scalars = await messages_to_scalars(committed_messages, api_id);
-			const blind_generators = await create_blind_generators(committed_message_scalars.length + 1);
+			const blind_generators = await create_blind_generators(committed_points.length + committed_message_scalars.length + 1);
 			const [state, secret_prover_blind] = await CoreCommitInit(
 				blind_generators,
 				committed_message_scalars,
@@ -1012,6 +1012,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		}
 
 		async function CoreCommitInit(
+			// First N+1 are Q2 and prover-blind generators, last M are prover-known generators
 			blind_generators: PointG1[],
 			committed_scalars: bigint[],
 			committed_points: PointG1[],
@@ -1027,8 +1028,8 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const msg = committed_scalars;
 
 			const [secret_prover_blind, s_tilde, ...m_tilde] = await calculate_random_scalars(M + 2);
-			const C = sumprod(blind_generators.slice(0, M + 1), [secret_prover_blind, ...msg]);
-			const Cbar = sumprod(blind_generators.slice(0, M + 1), [s_tilde, ...m_tilde]);
+			const C = sumprod(blind_generators.slice(N + 1), [secret_prover_blind, ...msg]);
+			const Cbar = sumprod(blind_generators.slice(N + 1), [s_tilde, ...m_tilde]);
 			const challenge = await calculate_blind_challenge(C, Cbar, blind_generators, committed_points, commit_header, api_id);
 			const s_hat = Fr.add(s_tilde, Fr.mul(secret_prover_blind, challenge));
 			const m_hat = m_tilde.map((m_tilde_i, i) => (Fr.add(m_tilde_i, Fr.mul(msg[i], challenge))));
@@ -1091,12 +1092,12 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				throw new Error("Invalid number of generators, commitments or point proofs", { cause: { blind_generators, commitments, committed_point_proofs } });
 			}
 
-			const Cbar = sumprod([...blind_generators, commitment], [s_hat, ...m_hat, Fr.neg(cp)]);
+			const Cbar = sumprod([...blind_generators.slice(N + 1), commitment], [s_hat, ...m_hat, Fr.neg(cp)]);
 			const cv = await calculate_blind_challenge(commitment, Cbar, blind_generators, committed_points, commit_header, api_id);
 			if (cv === cp) {
 				if (
 					(await Promise.all(committed_point_proofs.map(async ([k_hat, c], j) => {
-						const J = blind_generators[1 + M + j];
+						const J = blind_generators[1 + j];
 						const K = committed_points[j];
 						const R_hat = J.multiply(k_hat).add(K.multiply(Fr.neg(c)));
 						const cv = await hash_to_scalar(serialize([R_hat, cp]), new Uint8Array([]));
