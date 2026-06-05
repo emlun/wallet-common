@@ -865,13 +865,30 @@ describe("Suite:", () => {
 							committed_point_secrets.map((k, j) => CoreCommitProve(k, committed_point_generators[j], challenge))
 						)).map(([k, c]) => concat(I2OSP(k, 32), I2OSP(c, 32)));
 						const commitment_with_proof = await CommitFinalize(commit_state, committed_point_proofs);
-						console.log(`secret_prover_blind:   ${toHex(I2OSP(secret_prover_blind, 32))}`);
 						const signature = await BlindSign(SK, PK, commitment_with_proof, commitHeader, header, null);
 						asyncAssertThrows(
 							() => VerifyBlindSign(PK, signature, header, null, null, null, secret_prover_blind),
 							"Expected VerifyBlindSign with wrong committed points to fail",
 						);
 						assert(await VerifyBlindSign(PK, signature, header, null, null, committed_points, secret_prover_blind));
+					});
+
+					it("with committed messages and points.", async () => {
+						const [commit_state, secret_prover_blind, challenge] = await CommitInit(committed_messages, committed_points, commitHeader);
+						const committed_point_proofs = (await Promise.all(
+							committed_point_secrets.map((k, j) => CoreCommitProve(k, committed_point_generators[j], challenge))
+						)).map(([k, c]) => concat(I2OSP(k, 32), I2OSP(c, 32)));
+						const commitment_with_proof = await CommitFinalize(commit_state, committed_point_proofs);
+						const signature = await BlindSign(SK, PK, commitment_with_proof, commitHeader, header, null);
+						asyncAssertThrows(
+							() => VerifyBlindSign(PK, signature, header, null, null, committed_points, secret_prover_blind),
+							"Expected VerifyBlindSign with wrong committed messages to fail",
+						);
+						asyncAssertThrows(
+							() => VerifyBlindSign(PK, signature, header, null, committed_messages, null, secret_prover_blind),
+							"Expected VerifyBlindSign with wrong committed points to fail",
+						);
+						assert(await VerifyBlindSign(PK, signature, header, null, committed_messages, committed_points, secret_prover_blind));
 					});
 				});
 			});
