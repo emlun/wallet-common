@@ -735,20 +735,18 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 		async function deserialize_and_validate_commit(
 			commitment_with_proof: BufferSource,
-			blind_generators: PointG1[],
 			commit_header: BufferSource,
 			api_id: BufferSource,
-		): Promise<[PointG1, PointG1[]]> {
+		): Promise<[PointG1, PointG1[], PointG1[]]> {
 			if (commitment_with_proof.byteLength === 0) {
-				return [G1.Point.ZERO, []];
+				return [G1.Point.ZERO, [], []];
 			}
 
 			const [commit, commit_proof] = octets_to_commitment_with_proof(toU8(commitment_with_proof));
-			if (commit_proof[1].length + commit_proof[3].length + 1 !== blind_generators.length) {
-				throw new Error(`Invalid proof length: expected ${blind_generators.length - 1} blind attributes, was ${commit_proof[1].length + commit_proof[3].length}`, { cause: { commit_proof, blind_generators } });
-			}
+			const [, message_proofs,, point_proofs] = commit_proof;
+			const blind_generators = await create_blind_generators(1 + point_proofs.length + message_proofs.length);
 			await CoreCommitVerify(commit, commit_proof, blind_generators, commit_header, api_id);
-			return commit;
+			return [...commit, blind_generators];
 		}
 
 		async function Commit(
@@ -757,36 +755,36 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		): Promise<[BufferSource, bigint]> {
 			committed_messages = committed_messages ?? [];
 			commit_header = commit_header ?? new Uint8Array([]);
-			const [state,] = await CommitInit(committed_messages, null, commit_header);
-			return CommitFinalize(state, null);
+			const [state, secret_prover_blind,] = await CommitInit(committed_messages, null, commit_header);
+			return [await CommitFinalize(state, null), secret_prover_blind];
 		}
 
-		type CommitState = [PointG1[], bigint, PointG1, bigint, bigint[], bigint];
+		type CommitState = [PointG1[], PointG1, bigint, bigint[], bigint];
 		async function CommitInit(
 			committed_messages: BufferSource[] | null,
 			committed_points: BufferSource[] | null,
 			commit_header: BufferSource | null,
-		): Promise<[BufferSource, bigint]> {
+		): Promise<[BufferSource, bigint, BufferSource]> {
 			committed_messages = committed_messages ?? [];
 			committed_points = committed_points ?? [];
 			commit_header = commit_header ?? new Uint8Array([]);
 
 			const committed_message_scalars = await messages_to_scalars(committed_messages, api_id);
 			const blind_generators = await create_blind_generators(committed_points.length + committed_message_scalars.length + 1);
-			const [state, secret_prover_blind] = await CoreCommitInit(
+			const [state, challenge, secret_prover_blind] = await CoreCommitInit(
 				blind_generators,
 				committed_message_scalars,
 				committed_points.map(octets_to_point_E1),
 				commit_header,
 				api_id,
 			);
-			return [commit_state_to_octets(state), secret_prover_blind];
+			return [commit_state_to_octets(state), secret_prover_blind, serialize([challenge])];
 		}
 
 		async function CommitFinalize(
 			state: BufferSource,
 			committed_point_proofs: BufferSource[] | null,
-		): Promise<[BufferSource, bigint]> {
+		): Promise<BufferSource> {
 			committed_point_proofs = committed_point_proofs ?? [];
 			return CoreCommitFinalize(
 				octets_to_commit_state(state),
@@ -823,10 +821,9 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 			const generators = await create_unblind_generators(L + 1);
 			const [Q_1, ...H_Points] = generators;
-			const blind_generators = await create_blind_generators(M + 1);
+			const [commit, committed_points, blind_generators] = await deserialize_and_validate_commit(commitment_with_proof, commit_header, api_id);
 			const [Q_2, ...J] = blind_generators;
 			const domain = await calculate_domain(PK, Q_1, [...H_Points, Q_2, ...J], header, api_id);
-			const [commit, committed_points] = await deserialize_and_validate_commit(commitment_with_proof, blind_generators, commit_header, api_id);
 			const message_scalars = await messages_to_scalars(messages, api_id);
 			const res = B_calculate(generators, domain, commit.add(sum(committed_points)), message_scalars);
 			const [B] = res;
@@ -850,7 +847,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			committed_messages = committed_messages ?? [];
 			committed_points = committed_points ?? [];
 			secret_prover_blind = secret_prover_blind ?? 0n;
-			const [message_scalars, generators] = await prepare_parameters(
+			const [message_scalars, generators, blind_generators] = await prepare_parameters(
 				messages,
 				committed_messages,
 				messages.length + 1,
@@ -862,6 +859,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				PK,
 				signature,
 				generators,
+				blind_generators,
 				header,
 				message_scalars,
 				committed_points.map(octets_to_point_E1),
@@ -969,14 +967,14 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		}
 
 		function commit_state_to_octets(state: CommitState): BufferSource {
-			const [K, secret_prover_blind, C, s_hat, m_hat, challenge] = state;
+			const [K, C, s_hat, m_hat, challenge] = state;
 			const M = m_hat.length;
 			const N = K.length;
-			return serialize([M, N, ...K, secret_prover_blind, C, s_hat, ...m_hat, challenge]);
+			return serialize([M, N, ...K, C, s_hat, ...m_hat, challenge]);
 		}
 
 		function octets_to_commit_state(octets: BufferSource): CommitState {
-			const state_len_floor = 8 + 8 + octet_point_length + 3 * octet_scalar_length;
+			const state_len_floor = 8 + 8 + octet_point_length + 2 * octet_scalar_length;
 			if (octets.byteLength < state_len_floor) {
 				throw new Error(`State too short: expected at least ${state_len_floor} octets, was ${octets.byteLength}`, { cause: { octets } });
 			}
@@ -987,9 +985,9 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			if (octets.byteLength !== state_len) {
 				throw new Error(`Invalid state length: expected ${state_len} octets, was ${octets.byteLength}`, { cause: { octets, state_len } });
 			}
-			const [[K_octs, spb_octs, C_octs, s_hat_octs, m_hat_octs, challenge_octs], tail] = split_sections(
+			const [[K_octs, C_octs, s_hat_octs, m_hat_octs, challenge_octs], tail] = split_sections(
 				rest,
-				[N * octet_point_length, octet_scalar_length, octet_point_length, octet_scalar_length, M * octet_scalar_length, octet_scalar_length],
+				[N * octet_point_length, octet_point_length, octet_scalar_length, M * octet_scalar_length, octet_scalar_length],
 			);
 			if (tail.byteLength !== 0) {
 				throw new Error("Trailing octets", { cause: { octets, state_len, tail } });
@@ -997,7 +995,6 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 			return [
 				split_sections(K_octs, range(N).map(() => octet_point_length))[0].map(octets_to_point_E1),
-				OS2IP(spb_octs),
 				octets_to_point_E1(C_octs),
 				OS2IP(s_hat_octs),
 				split_sections(m_hat_octs, range(M).map(() => octet_scalar_length))[0].map(OS2IP),
@@ -1012,7 +1009,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			committed_points: PointG1[],
 			commit_header: BufferSource,
 			api_id: BufferSource,
-		): Promise<[CommitState, bigint]> {
+		): Promise<[CommitState, bigint, bigint]> {
 			const M = committed_scalars.length;
 			const N = committed_points.length;
 			if (blind_generators.length !== M + N + 1) {
@@ -1030,13 +1027,12 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 			const state: CommitState = [
 				committed_points,
-				secret_prover_blind,
 				C,
 				s_hat,
 				m_hat,
 				challenge,
 			];
-			return [state, challenge];
+			return [state, challenge, secret_prover_blind];
 		}
 
 		async function CoreCommitProve(
@@ -1056,8 +1052,8 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		async function CoreCommitFinalize(
 			state: CommitState,
 			committed_point_proofs: [bigint, bigint][],
-		): Promise<[BufferSource, bigint]> {
-			const [committed_points, secret_prover_blind, C, s_hat, m_hat, challenge] = state;
+		): Promise<BufferSource> {
+			const [committed_points, C, s_hat, m_hat, challenge] = state;
 			const N = committed_points.length;
 
 			if (committed_point_proofs.length !== N) {
@@ -1068,7 +1064,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				[C, committed_points],
 				[s_hat, m_hat, challenge, committed_point_proofs],
 			);
-			return [commit_with_proof, secret_prover_blind];
+			return commit_with_proof;
 		}
 
 		async function CoreCommitVerify(
@@ -1140,6 +1136,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			PK: BufferSource,
 			signature: BufferSource,
 			generators: PointG1[],
+			blind_generators: PointG1[],
 			header: BufferSource,
 			messages: bigint[],
 			committed_points: PointG1[],
@@ -1149,14 +1146,17 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const W = octets_to_pubkey(PK);
 			const M = messages.length;
 			const N = committed_points.length;
-			if (generators.length !== M + N + 1) {
-				throw new Error("Messages, points and generators not of matching lengths", { cause: { messages, committed_points, generators } });
+			if (generators.length + blind_generators.length !== M + N + 1) {
+				throw new Error("Messages, points and generators not of matching lengths", { cause: { messages, committed_points, generators, blind_generators } });
 			}
-			const Q_1 = generators[0];
-			const H_Points = generators.slice(1);
+			const [Q_1, ...H_Points] = generators;
+			const [Q_2, ...J_Points] = blind_generators;
 
-			const domain = await calculate_domain(PK, Q_1, H_Points, header, api_id);
-			const B = P1.add(Q_1.multiply(domain)).add(sumprod(H_Points, messages).add(sum(committed_points)));
+			const domain = await calculate_domain(PK, Q_1, [...H_Points, ...blind_generators], header, api_id);
+			const B = P1
+				.add(Q_1.multiply(domain))
+				.add(sumprod([...H_Points, Q_2, ...J_Points.slice(N)], messages))
+				.add(sum(committed_points));
 			if (!Fp12.eql(
 				Fp12.mul(h(A, W.add(G2.Point.BASE.multiply(e))), h(B, G2.Point.BASE.negate())),
 				Fp12.ONE,
@@ -1166,7 +1166,6 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			return true;
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-prepare-parameters */
 		async function prepare_parameters(
 			messages: BufferSource[],
 			committed_messages: BufferSource[],
@@ -1174,7 +1173,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			blind_generators_number: number,
 			secret_prover_blind: bigint | null,
 			api_id: BufferSource,
-		): Promise<[bigint[], PointG1[]]> {
+		): Promise<[bigint[], PointG1[], PointG1[]]> {
 			secret_prover_blind = secret_prover_blind ?? 0n;
 
 			const message_scalars = await messages_to_scalars(messages, api_id);
@@ -1190,7 +1189,8 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const blind_generators = await create_blind_generators(blind_generators_number);
 			return [
 				[...message_scalars, ...committed_message_scalars],
-				[...generators, ...blind_generators],
+				generators,
+				blind_generators,
 			];
 		}
 
@@ -1207,7 +1207,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			}
 			const [Q_1, ...H_Points] = generators;
 			const msg = message_scalars;
-			const B = sumprod([P1, Q_1, ...H_Points, commitment], [1n, domain, ...msg, 1n]);
+			const B = P1.add(sumprod([Q_1, ...H_Points], [domain, ...msg])).add(commitment);
 			if (B.is0()) {
 				throw new Error("B must not be Identity_G1", { cause: { generators, commitment, message_scalars } });
 			}
@@ -1673,7 +1673,7 @@ type BlindBbsSuite = {
 		committed_messages: BufferSource[] | null,
 		committed_points: BufferSource[] | null,
 		commit_header: BufferSource | null,
-	): Promise<[BufferSource, bigint]>;
+	): Promise<[BufferSource, bigint, BufferSource]>;
 
 	CoreCommitProve(
 		committed_point_secret: bigint,
@@ -1684,7 +1684,7 @@ type BlindBbsSuite = {
 	CommitFinalize(
 		state: BufferSource,
 		committed_point_proofs: BufferSource[] | null,
-	): Promise<[BufferSource, bigint]>;
+	): Promise<BufferSource>;
 
 	BlindSign(
 		SK: bigint,

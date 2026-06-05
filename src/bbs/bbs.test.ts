@@ -1,6 +1,6 @@
 import { assert, describe, it } from "vitest";
 
-import { concat, fromHex, toHex, toU8, toUtf8 } from "../utils/util";
+import { concat, fromHex, I2OSP, OS2IP, range, toHex, toU8, toUtf8 } from "../utils/util";
 import { asyncAssertThrows } from "../testutil";
 import { getCipherSuite, PointG1 } from ".";
 
@@ -775,6 +775,103 @@ describe("Suite:", () => {
 
 						skip("signature does not reproduce");
 						assert.equal(toHex(signature), toHex(expectedSignature));
+					});
+				});
+
+				describe("works:", async () => {
+
+					const { BlindBbs, params: { curves: { fields: { Fr } } } } = getCipherSuite(suiteId);
+					const { Commit, CommitInit, CommitFinalize, CoreCommitProve, BlindSign, VerifyBlindSign, create_blind_generators } = BlindBbs;
+
+					// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-signature-test-vectors
+					const SK = Fr.fromBytes(fromHex("60e55110f76883a13d030b2f6bd11883422d5abde717569fc0731f51237169fc"));
+					const PK = fromHex(
+						"a820f230f6ae38503b86c70dc50b61c58a77e45c39ab25c0652bbaa8fa1" +
+						"36f2851bd4781c9dcde39fc9d1d52c9e60268061e7d7632171d91aa8d46" +
+						"0acee0e96f1e7c4cfb12d3ff9ab5d5dc91c277db75c845d649ef3c4f63a" +
+						"ebc364cd55ded0c"
+					);
+						const commitHeader = fromHex("ffeeddccbbaa00998877665544332211");
+					const header = fromHex("11223344556677889900aabbccddeeff");
+
+					const committed_messages = [
+						fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
+						fromHex("a75d8b634891af92282cc81a675972d1929d3149863c1fc0"),
+						fromHex("835889a40744813a892eff9deb1edaeb"),
+						fromHex("e1ca9729410dc6ba"),
+						fromHex(""),
+					];
+					const committed_point_secrets = [
+						// Randomly generated values
+						OS2IP(fromHex("408bce8a7aed6ff1ef7bddca0b213fba7487cd8af2d79c516299b625724ece86")),
+						OS2IP(fromHex("58f8957ff40799a7d5807787cdab248627f657720b435b5c")),
+						OS2IP(fromHex("8cc872a028f45538d07640812b32a003")),
+						OS2IP(fromHex("d9354e76b5930810")),
+					];
+					const [Q2, ...committed_point_generators] = await create_blind_generators(1 + committed_point_secrets.length);
+					const committed_points = committed_point_secrets.map((k, j) => committed_point_generators[j].multiply(k).toBytes());
+					const messages = [
+						fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"),
+						fromHex("c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80"),
+						fromHex("7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73"),
+						fromHex("77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c"),
+						fromHex("496694774c5604ab1b2544eababcf0f53278ff50"),
+						fromHex("515ae153e22aae04ad16f759e07237b4"),
+						fromHex("d183ddc6e2665aa4e2f088af"),
+						fromHex("ac55fb33a75909ed"),
+						fromHex("96012096"),
+						fromHex(""),
+					];
+
+					it("with no committed messages, points, commit header or signature header.", async () => {
+						const [commitment_with_proof, secret_prover_blind] = await Commit(null, null);
+						const signature = await BlindSign(SK, PK, commitment_with_proof, null, null, null);
+						assert(await VerifyBlindSign(PK, signature, null, null, null, null, secret_prover_blind));
+					});
+
+					it("with no committed messages points, or signature header but nonempty commit header.", async () => {
+						const [commitment_with_proof, secret_prover_blind] = await Commit(null, commitHeader);
+						asyncAssertThrows(
+							() => BlindSign(SK, PK, commitment_with_proof, null, null, null),
+							"Expected BlindSign with wrong commit header to fail",
+						);
+						const signature = await BlindSign(SK, PK, commitment_with_proof, commitHeader, null, null);
+						assert(await VerifyBlindSign(PK, signature, null, null, null, null, secret_prover_blind));
+					});
+
+					it("with no committed messages or points but nonempty commit and signature headers.", async () => {
+						const [commitment_with_proof, secret_prover_blind] = await Commit(null, commitHeader);
+						const signature = await BlindSign(SK, PK, commitment_with_proof, commitHeader, header, null);
+						asyncAssertThrows(
+							() => VerifyBlindSign(PK, signature, null, null, null, null, secret_prover_blind),
+							"Expected VerifyBlindSign with wrong header to fail",
+						);
+						assert(await VerifyBlindSign(PK, signature, header, null, null, null, secret_prover_blind));
+					});
+
+					it("with committed messages but no points.", async () => {
+						const [commitment_with_proof, secret_prover_blind] = await Commit(committed_messages, commitHeader);
+						const signature = await BlindSign(SK, PK, commitment_with_proof, commitHeader, header, null);
+						asyncAssertThrows(
+							() => VerifyBlindSign(PK, signature, header, null, null, null, secret_prover_blind),
+							"Expected VerifyBlindSign with wrong committed messages to fail",
+						);
+						assert(await VerifyBlindSign(PK, signature, header, null, committed_messages, null, secret_prover_blind));
+					});
+
+					it("with committed points but no messages.", async () => {
+						const [commit_state, secret_prover_blind, challenge] = await CommitInit(null, committed_points, commitHeader);
+						const committed_point_proofs = (await Promise.all(
+							committed_point_secrets.map((k, j) => CoreCommitProve(k, committed_point_generators[j], challenge))
+						)).map(([k, c]) => concat(I2OSP(k, 32), I2OSP(c, 32)));
+						const commitment_with_proof = await CommitFinalize(commit_state, committed_point_proofs);
+						console.log(`secret_prover_blind:   ${toHex(I2OSP(secret_prover_blind, 32))}`);
+						const signature = await BlindSign(SK, PK, commitment_with_proof, commitHeader, header, null);
+						asyncAssertThrows(
+							() => VerifyBlindSign(PK, signature, header, null, null, null, secret_prover_blind),
+							"Expected VerifyBlindSign with wrong committed points to fail",
+						);
+						assert(await VerifyBlindSign(PK, signature, header, null, null, committed_points, secret_prover_blind));
 					});
 				});
 			});
