@@ -168,3 +168,8 @@ export function generateRandomIdentifier(length: number) {
 		"",
 	);
 }
+
+/** Return the list of integers from 0 (inclusive) to n (exclusive). */
+export function range(n: number): number[] {
+	return Array(n).fill(0).map((_, i) => i);
+}

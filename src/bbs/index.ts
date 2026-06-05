@@ -4,14 +4,9 @@ import type { BlsCurvePair } from "@noble/curves/abstract/bls";
 import type { Fp2 } from "@noble/curves/abstract/tower";
 import { bls12_381 } from "@noble/curves/bls12-381.js";
 
-import { concat, fromHex, I2OSP, OS2IP, split_at, split_sections, toHex, toU8, toUtf8 } from "../utils/util";
+import { concat, fromHex, I2OSP, OS2IP, range, split_at, split_sections, toHex, toU8, toUtf8 } from "../utils/util";
 import { hashToCurve, sha256, HashToCurveSuite } from "../arkg/hash_to_curve";
 import { WeierstrassPoint } from "@noble/curves/abstract/weierstrass";
-
-
-function range(n: number): number[] {
-	return Array(n).fill(0).map((_, i) => i);
-}
 
 
 function createSuite(suite: SuiteParams): CipherSuite {
