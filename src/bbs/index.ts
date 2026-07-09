@@ -4,7 +4,7 @@ import type { BlsCurvePair } from "@noble/curves/abstract/bls";
 import type { Fp2 } from "@noble/curves/abstract/tower";
 import { bls12_381 } from "@noble/curves/bls12-381.js";
 
-import { concat, fromHex, I2OSP, OS2IP, range, toHex, toU8, toUtf8 } from "../utils/util";
+import { concat, fromHex, I2OSP, isStrictlyIncreasing, OS2IP, range, toHex, toU8, toUtf8 } from "../utils/util";
 import { hashToCurve, HashToCurveSuite } from "../arkg/hash_to_curve";
 import { WeierstrassPoint } from "@noble/curves/abstract/weierstrass";
 
@@ -47,7 +47,11 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		if (points.length !== scalars.length) {
 			throw new Error("Invalid input dimensions", { cause: { points, scalars } });
 		}
-		return sum(points.map((Hi, i) => Hi.multiply(scalars[i])));
+		return sum(points.map((Hi, i) =>
+			scalars[i] === 0n
+				? G1.Point.ZERO
+				: Hi.multiply(scalars[i])
+		));
 	}
 
 	function get_random(n: number): BufferSource {
@@ -393,7 +397,6 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			return create_generators(count, blind_api_id);
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-commitment-validation-and-d */
 		async function deserialize_and_validate_commit(
 			commitment_with_proof: BufferSource,
 			blind_generators: PointG1[],
@@ -411,7 +414,6 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			return commit;
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-commitment-computation */
 		async function Commit(
 			committed_messages: BufferSource[],
 		): Promise<[BufferSource, bigint]> {
@@ -422,7 +424,6 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			return CoreCommit(blind_generators, committed_message_scalars, api_id);
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-blind-signature-generation */
 		async function BlindSign(
 			SK: bigint,
 			PK: BufferSource,
@@ -445,154 +446,171 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			}
 
 			const generators = await create_unblind_generators(L + 1);
-			const [Q_1, ...H_Points] = generators;
+			// const [Q_1, ...H_Points] = generators;
 			const blind_generators = await create_blind_generators(M + 1);
-			const [Q_2, ...J] = blind_generators;
-			const domain = await calculate_domain(PK, Q_1, [...H_Points, Q_2, ...J], header, api_id);
-			const commit = await deserialize_and_validate_commit(commitment_with_proof, blind_generators, api_id);
+			// const [Q_2, ...J] = blind_generators;
+			const commitment = await deserialize_and_validate_commit(commitment_with_proof, blind_generators, api_id);
 			const message_scalars = await messages_to_scalars(messages, api_id);
-			const res = B_calculate(generators, domain, commit, message_scalars);
+			const res = await B_calculate(PK, generators, blind_generators, commitment, message_scalars, header, api_id);
 			const [B] = res;
-			// const blind_sig = FinalizeBlindSign(SK, PK, B, generators, blind_generators, header, api_id);
-			const blind_sig = FinalizeBlindSign(SK, domain, B, api_id);
+			const blind_sig = FinalizeBlindSign(SK, B, api_id);
 			return blind_sig;
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-blind-signature-verificatio */
 		async function VerifyBlindSign(
 			PK: BufferSource,
 			signature: BufferSource,
 			header: BufferSource | null,
 			messages: BufferSource[] | null,
-			committed_messages: BufferSource[] | null,
+			issuer_known_messages_no: number | null,
 			secret_prover_blind: bigint | null,
 		): Promise<true> {
 			header = header ?? new Uint8Array([]);
 			messages = messages ?? [];
-			committed_messages = committed_messages ?? [];
+			issuer_known_messages_no = issuer_known_messages_no ?? 0;
 			secret_prover_blind = secret_prover_blind ?? 0n;
-			const [message_scalars, generators] = await prepare_parameters(
-				messages,
-				committed_messages,
-				messages.length + 1,
-				committed_messages.length + 1,
-				secret_prover_blind,
+			const L = messages.length;
+			if (issuer_known_messages_no > L) {
+				throw new Error("Too many issuer-known messages", { cause: { messages, issuer_known_messages_no } });
+			}
+
+			const generators = await create_unblind_generators(issuer_known_messages_no + 1);
+			const blind_generators = await create_blind_generators(L - issuer_known_messages_no + 1);
+			const message_scalars = await messages_to_scalars(messages, api_id);
+			const signer_scalars = message_scalars.slice(0, issuer_known_messages_no);
+			const committed_message_scalars = message_scalars.slice(issuer_known_messages_no);
+			const proof_scalars = [...signer_scalars, secret_prover_blind, ...committed_message_scalars];
+			const res = await CoreVerify(
+				PK,
+				signature,
+				[...generators, ...blind_generators],
+				header,
+				proof_scalars,
 				api_id,
 			);
-			const res = await CoreVerify(PK, signature, generators, header, message_scalars, api_id);
 			return res;
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-proof-generation */
 		async function BlindProofGen(
 			PK: BufferSource,
 			signature: BufferSource,
 			header: BufferSource | null,
 			ph: BufferSource | null,
 			messages: BufferSource[] | null,
-			committed_messages: BufferSource[] | null,
-			disclosed_indexes: number[] | null,
-			disclosed_commitment_indexes: number[] | null,
+			issuer_known_messages_no: number | null,
+			message_disclosures: DisclosureChoice[] | null,
 			secret_prover_blind: bigint | null,
-		): Promise<BufferSource> {
+		): Promise<[BufferSource, [bigint[], bigint[]]]> {
 			header = header ?? new Uint8Array([]);
 			ph = ph ?? new Uint8Array([]);
 			messages = messages ?? [];
-			committed_messages = committed_messages ?? [];
-			disclosed_indexes = disclosed_indexes ?? [];
-			disclosed_commitment_indexes = disclosed_commitment_indexes ?? [];
+			issuer_known_messages_no = issuer_known_messages_no ?? 0;
+			message_disclosures = message_disclosures ?? [],
 			secret_prover_blind = secret_prover_blind ?? 0n;
 
 			const L = messages.length;
-			const M = committed_messages.length;
-			if (disclosed_indexes.length > L) {
-				throw new Error("Too many disclosed indexes", { cause: { messages, disclosed_indexes } });
+			if (message_disclosures.length !== L) {
+				throw new Error("Invalid disclosure map", { cause: { messages, message_disclosures } });
 			}
-			disclosed_indexes.forEach(i => {
-				if (i < 0 || i >= L) {
-					throw new Error(`Invalid disclosed index: ${i}`, { cause: { i, disclosed_indexes, messages } });
-				}
-			});
-			if (disclosed_commitment_indexes.length > M) {
-				throw new Error("Too many disclosed commitment indexes", { cause: { committed_messages, disclosed_commitment_indexes } });
+			if (issuer_known_messages_no > L) {
+				throw new Error("Too many issuer-known messages", { cause: { messages, issuer_known_messages_no } });
 			}
-			disclosed_commitment_indexes.forEach(j => {
-				if (j < 0 || j >= M) {
-					throw new Error(`Invalid disclosed commitment index: ${j}`, { cause: { j, disclosed_commitment_indexes, committed_messages } });
-				}
-			});
+			const disclosed_indexes = range(L).filter(i => message_disclosures[i] === "DISCLOSE");
+			const commitment_indexes = range(L).filter(i => message_disclosures[i] === "COMMIT");
 
-			const [message_scalars, generators] = await prepare_parameters(
-				messages,
-				committed_messages,
-				messages.length + 1,
-				committed_messages.length + 1,
-				secret_prover_blind,
+			const generators = await create_unblind_generators(issuer_known_messages_no + 1);
+			const blind_generators = await create_blind_generators(L - issuer_known_messages_no + 1);
+			const message_scalars = await messages_to_scalars(messages, api_id);
+			const signer_scalars = message_scalars.slice(0, issuer_known_messages_no);
+			const committed_message_scalars = message_scalars.slice(issuer_known_messages_no);
+			const proof_scalars = [...signer_scalars, secret_prover_blind, ...committed_message_scalars];
+			const proof_index = range(L).map(i => i < issuer_known_messages_no ? i : i + 1);
+			const proof_disclosed_indexes = disclosed_indexes.map(i => proof_index[i]);
+			const proof_commitment_indexes = commitment_indexes.map(i => proof_index[i]);
+			const proof_with_add_zkp_info = await BlindCoreProofGen(
+				PK,
+				signature,
+				[...generators, ...blind_generators],
+				header,
+				ph,
+				proof_scalars,
+				proof_disclosed_indexes,
+				proof_commitment_indexes,
 				api_id,
 			);
-			const indexes = [
-				...disclosed_indexes,
-				...disclosed_commitment_indexes.map(j => j + L + 1),
-			];
-			const proof = await CoreProofGen(PK, signature, generators, header, ph, message_scalars, indexes, api_id);
-			return proof;
+			return proof_with_add_zkp_info;
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-proof-verification */
 		async function BlindProofVerify(
 			PK: BufferSource,
 			proof: BufferSource,
 			header: BufferSource | null,
 			ph: BufferSource | null,
-			L: number,
+			issuer_known_messages_no: number | null,
 			disclosed_messages: BufferSource[] | null,
-			disclosed_committed_messages: BufferSource[] | null,
-			disclosed_indexes: number[] | null,
-			disclosed_committed_indexes: number[] | null,
+			message_disclosures: DisclosureChoice[] | null,
 		): Promise<true> {
 			header = header ?? new Uint8Array([]);
 			ph = ph ?? new Uint8Array([]);
 			disclosed_messages = disclosed_messages ?? [];
-			disclosed_committed_messages = disclosed_committed_messages ?? [];
-			disclosed_indexes = disclosed_indexes ?? [];
-			disclosed_committed_indexes = disclosed_committed_indexes ?? [];
+			issuer_known_messages_no = issuer_known_messages_no ?? 0;
+			disclosed_messages = disclosed_messages ?? [];
+			message_disclosures = message_disclosures ?? [];
 
-			const proof_len_floor = 3 * octet_point_length + 4 * octet_scalar_length;
-			if (proof.byteLength < proof_len_floor) {
-				throw new Error(`Proof too short: expected at least ${proof_len_floor} octets, was ${proof.byteLength}`, { cause: { proof, proof_len_floor } });
+			const bbs_proof_len = Number(OS2IP(toU8(proof).slice(0, 8)));
+			const undisclosed_msgs_no = (
+				bbs_proof_len
+					- 3 * octet_point_length
+					- 4 * octet_scalar_length
+			) / octet_scalar_length;
+			const proof_msgs_no = undisclosed_msgs_no + disclosed_messages.length;
+			if (proof_msgs_no === 0) {
+				throw new Error("Too few messages", { cause: { proof, undisclosed_msgs_no, proof_msgs_no } });
 			}
-			const U = Math.floor((proof.byteLength - proof_len_floor) / octet_scalar_length);
-			const total_no_messages = disclosed_indexes.length + disclosed_committed_indexes.length + U;
-			const M = total_no_messages - L;
+			const total_msgs_no = proof_msgs_no - 1;
+			if (issuer_known_messages_no > total_msgs_no) {
+				throw new Error("Too many issuer-known messages", { cause: { total_msgs_no, issuer_known_messages_no } });
+			}
+			if (message_disclosures.length !== total_msgs_no) {
+				throw new Error("Invalid disclosures", { cause: { total_msgs_no, message_disclosures } });
+			}
+			const disclosed_indexes = range(total_msgs_no).filter(i => message_disclosures[i] === "DISCLOSE");
+			const commitment_indexes = range(total_msgs_no).filter(i => message_disclosures[i] === "COMMIT");
+			if (disclosed_indexes.length !== disclosed_messages.length) {
+				throw new Error("Invalid disclosures", { cause: { disclosed_indexes, disclosed_messages } });
+			}
+			const proof_index = range(total_msgs_no).map(i => i < issuer_known_messages_no ? i : i + 1);
+			const proof_disclosed_indexes = disclosed_indexes.map(i => proof_index[i]);
+			const proof_commitment_indexes = commitment_indexes.map(i => proof_index[i]);
 
-			const [message_scalars, generators] = await prepare_parameters(
-				disclosed_messages,
-				disclosed_committed_messages,
-				L + 1,
-				M,
-				null,
+			const generators = await create_unblind_generators(issuer_known_messages_no + 1);
+			const blind_generators = await create_blind_generators(total_msgs_no - issuer_known_messages_no + 1);
+			const message_scalars = await messages_to_scalars(disclosed_messages, api_id);
+			const result = await BlindCoreProofVerify(
+				PK,
+				proof,
+				[...generators, ...blind_generators],
+				header,
+				ph,
+				message_scalars,
+				proof_disclosed_indexes,
+				proof_commitment_indexes,
 				api_id,
 			);
-			const indexes = [
-				...disclosed_indexes,
-				...disclosed_committed_indexes.map(j => j + L + 1),
-			];
-			const result = await CoreProofVerify(PK, proof, generators, header, ph, message_scalars, indexes, api_id);
 			return result;
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-core-commitment-computation */
 		async function CoreCommit(
 			blind_generators: PointG1[],
-			committed_scalars: bigint[],
+			committed_message_scalars: bigint[],
 			api_id: BufferSource,
 		): Promise<[BufferSource, bigint]> {
-			const M = committed_scalars.length;
+			const M = committed_message_scalars.length;
 			if (blind_generators.length !== M + 1) {
-				throw new Error("Invalid number of generators or messages", { cause: { blind_generators, committed_scalars } });
+				throw new Error("Invalid number of generators or messages", { cause: { blind_generators, committed_scalars: committed_message_scalars } });
 			}
 			// const [Q2, ...J] = blind_generators;
-			const msg = committed_scalars;
+			const msg = committed_message_scalars;
 
 			const [secret_prover_blind, s_tilde, ...m_tilde] = await calculate_random_scalars(M + 2);
 			const C = sumprod(blind_generators, [secret_prover_blind, ...msg]);
@@ -606,7 +624,6 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			return [commit_with_proof, secret_prover_blind];
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-core-commitment-verificatio */
 		async function CoreCommitVerify(
 			commitment: PointG1,
 			commitment_proof: [bigint, bigint[], bigint],
@@ -629,11 +646,10 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			throw new Error("Invalid proof", { cause: { commitment, commitment_proof, blind_generators, api_id } });
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-finalize-blind-sign */
 		async function FinalizeBlindSign(
 			SK: bigint,
 			// PK: BufferSource,
-			domain: bigint,
+			// domain: bigint,
 			B: PointG1,
 			// generators: PointG1[],
 			// blind_generators: PointG1[],
@@ -641,6 +657,10 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			api_id: BufferSource,
 		): Promise<BufferSource> {
 			const signature_dst = concat(api_id, toUtf8("H2S_"));
+
+			if (B.is0()) {
+				throw new Error("B must not be identity_G1");
+			}
 
 			// const L = generators.length - 1;
 			// const M = blind_generators.length - 1;
@@ -651,61 +671,211 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			// const [Q_2, ...J] = blind_generators;
 
 			// const domain = await calculate_domain(PK, Q_1, [...H_Points, Q_2, ...J], header, api_id);
-			const e_octs = serialize([SK, B, domain]);
+			const e_octs = serialize([SK, B]);
 			const e = await hash_to_scalar(e_octs, signature_dst);
 			const A = B.multiply(Fr.inv(Fr.add(SK, e)));
 			return signature_to_octets(A, e);
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-prepare-parameters */
-		async function prepare_parameters(
-			messages: BufferSource[],
-			committed_messages: BufferSource[],
-			generators_number: number,
-			blind_generators_number: number,
-			secret_prover_blind: bigint | null,
+		async function BlindCoreProofGen(
+			PK: BufferSource,
+			signature: BufferSource,
+			generators: PointG1[],
+			header: BufferSource,
+			ph: BufferSource,
+			messages: bigint[],
+			disclosed_indexes: number[],
+			commitment_indexes: number[],
 			api_id: BufferSource,
-		): Promise<[bigint[], PointG1[]]> {
-			secret_prover_blind = secret_prover_blind ?? 0n;
+		): Promise<[BufferSource, [bigint[], bigint[]]]> {
+			const [Y_0, Y_1] = await create_generators(2, concat(toUtf8("COM_DIS_"), api_id));
 
-			const message_scalars = await messages_to_scalars(messages, api_id);
-			const committed_message_scalars = [
-				...(
-					secret_prover_blind !== 0n
-						? [secret_prover_blind]
-						: []
-				),
-				...await messages_to_scalars(committed_messages, api_id),
+			const signature_result = octets_to_signature(signature);
+			const [_A, e] = signature_result;
+			const L = messages.length;
+			if (!(isStrictlyIncreasing(commitment_indexes) && commitment_indexes.every(i => i >= 0 && i < L))) {
+				throw new Error("Invalid commitment_indexes", { cause: { commitment_indexes } });
+			}
+			if (!(isStrictlyIncreasing(disclosed_indexes) && disclosed_indexes.every(i => i >= 0 && i < L))) {
+				throw new Error("Invalid disclosed_indexes", { cause: { disclosed_indexes } });
+			}
+			const disclosed_set = new Set(disclosed_indexes);
+			if (commitment_indexes.some(i => disclosed_set.has(i))) {
+				throw new Error("Non-disjoint disclosed_indexes and commitment_indexes", { cause: { disclosed_indexes, commitment_indexes } });
+			}
+			const N = commitment_indexes.length;
+			const R = disclosed_indexes.length;
+			const U = L - R;
+			const ii = disclosed_indexes;
+			const disclosed_messages = disclosed_indexes.map(i => messages[i]);
+			const undisclosed_indexes = range(L).filter(i => !disclosed_set.has(i));
+			const ji = undisclosed_indexes;
+			const undisclosed_messages = undisclosed_indexes.map(i => messages[i]);
+
+			const init_random_scalars = await calculate_random_scalars(5 + U);
+			const [r1, r2, r_tilde, r1_tilde, r3_tilde, ...m_tilde] = init_random_scalars;
+			const init_res = await ProofInit(
+				PK,
+				signature_result,
+				generators,
+				init_random_scalars,
+				header,
+				messages,
+				undisclosed_indexes,
+				api_id,
+			);
+
+			const s_and_s_tilde = await calculate_random_scalars(2 * N);
+			const s = s_and_s_tilde.slice(0, N);
+			const s_tilde = s_and_s_tilde.slice(N);
+			const Cs_and_C_tildes = commitment_indexes.map((idx, i) => {
+				const Ci = Y_0.multiply(s[i]).add(Y_1.multiply(messages[idx]));
+				const k = ji.indexOf(idx);
+				const C_tilde_i = Y_0.multiply(s_tilde[i]).add(Y_1.multiply(m_tilde[ji[k]]));
+				return [Ci, C_tilde_i];
+			});
+
+			const commitment_init_res = {
+				commitments: Cs_and_C_tildes.map(([Ci, _]) => Ci),
+				commitments_proofs: Cs_and_C_tildes.map(([_, C_tilde_i]) => C_tilde_i),
+				commitment_indexes,
+			};
+
+			const challenge = await BlindProofChallengeCalculate(
+				init_res,
+				commitment_init_res,
+				disclosed_messages,
+				disclosed_indexes,
+				ph,
+				api_id,
+			);
+
+			const bbs_proof = ProofFinalize(init_res, challenge, e, init_random_scalars, undisclosed_messages);
+
+			const s_hat = s_tilde.map((s_tilde, i) => Fr.add(s_tilde, Fr.mul(challenge, s[i])));
+			const commitments_proof: [PointG1[], bigint[]] = [commitment_init_res.commitments, s_hat];
+
+			const proof = blind_proof_to_octets(toU8(serialize([bbs_proof])).length, bbs_proof, N, commitments_proof);
+			const add_zkp_info: [bigint[], bigint[]] = [
+				commitment_indexes.map(i => messages[i]),
+				s,
 			];
-			const generators = await create_unblind_generators(generators_number);
-			const blind_generators = await create_blind_generators(blind_generators_number);
-			return [
-				[...message_scalars, ...committed_message_scalars],
-				[...generators, ...blind_generators],
-			];
+			return [proof, add_zkp_info];
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-calculate-b-value */
-		function B_calculate(
+		async function BlindCoreProofVerify(
+			PK: BufferSource,
+			proof: BufferSource,
 			generators: PointG1[],
-			domain: bigint,
+			header: BufferSource,
+			ph: BufferSource,
+			disclosed_messages: bigint[],
+			disclosed_indexes: number[],
+			commitment_indexes: number[],
+			api_id: BufferSource,
+		): Promise<true> {
+			const [Y_0, Y_1] = await create_generators(2, concat(toUtf8("COM_DIS_"), api_id));
+
+			const W = octets_to_pubkey(PK);
+
+			const proof_res = blind_octets_to_proof(proof);
+			const [bbs_proof_res, commitments_proof_res] = proof_res;
+			const [Abar, Bbar, _D, _ehat, _r1hat, _r3hat, hats, cp] = bbs_proof_res;
+			const [commitments, commitments_proof] = commitments_proof_res;
+
+			const N = commitments.length;
+			if (commitments_proof.length !== N) {
+				throw new Error("Invalid commitments_proof length", { cause: { commitments, commitments_proof } });
+			}
+			if (commitment_indexes.length !== N) {
+				throw new Error("Invalid commitments_indexes length", { cause: { commitments, commitment_indexes } });
+			}
+			const U = hats.length;
+			const R = disclosed_indexes.length;
+			if (disclosed_messages.length !== R) {
+				throw new Error("Invalid disclosed_messages length", { cause: { R, disclosed_messages } });
+			}
+			const L = R + U;
+
+			if (!(isStrictlyIncreasing(commitment_indexes) && commitment_indexes.every(i => i >= 0 && i < L))) {
+				throw new Error("Invalid commitment_indexes", { cause: { commitment_indexes } });
+			}
+			if (!(isStrictlyIncreasing(disclosed_indexes) && disclosed_indexes.every(i => i >= 0 && i < L))) {
+				throw new Error("Invalid disclosed_indexes", { cause: { disclosed_indexes } });
+			}
+			const disclosed_set = new Set(disclosed_indexes);
+			if (commitment_indexes.some(i => disclosed_set.has(i))) {
+				throw new Error("Non-disjoint disclosed_indexes and commitment_indexes", { cause: { disclosed_indexes, commitment_indexes } });
+			}
+
+			const undisclosed_indexes = range(L).filter(i => !disclosed_set.has(i));
+			const ji = undisclosed_indexes;
+			const m_hat = hats;
+			const C = commitments;
+			const s_hat = commitments_proof;
+
+			const init_res = await ProofVerifyInit(PK, bbs_proof_res, generators, header, disclosed_messages, disclosed_indexes, api_id);
+
+			const C_hat = commitment_indexes.map((idx, i) => {
+				const k = ji.indexOf(idx);
+				const C_hat_i = Y_0.multiply(s_hat[i]).add(Y_1.multiply(m_hat[ji[k]])).subtract(C[i].multiply(cp));
+				return C_hat_i;
+			});
+
+			const commitment_init_res = {
+				commitments: C,
+				commitments_proofs: C_hat,
+				commitment_indexes,
+			};
+
+			const challenge = await BlindProofChallengeCalculate(
+				init_res,
+				commitment_init_res,
+				disclosed_messages,
+				disclosed_indexes,
+				ph,
+				api_id,
+			);
+			if (cp !== challenge) {
+				throw new Error(`Invalid proof: incorrect challenge: expected ${challenge}, was ${cp}`, { cause: { proof } })
+			}
+			if (!Fp12.eql(
+				Fp12.mul(h(Abar, W), h(Bbar, G2.Point.BASE.negate())),
+				Fp12.ONE,
+			)) {
+				throw new Error("Invalid proof: incorrect pairing", { cause: { proof } })
+			}
+			return true;
+		}
+
+		async function B_calculate(
+			PK: BufferSource,
+			generators: PointG1[],
+			blind_generators: PointG1[],
 			commitment: PointG1,
 			message_scalars: bigint[],
-		): [PointG1] {
+			header: BufferSource,
+			api_id: BufferSource,
+		): Promise<[PointG1]> {
 			const L = message_scalars.length;
+			const M = blind_generators.length - 1;
 			if (generators.length !== L + 1) {
 				throw new Error("Messages and generators not of matching lengths", { cause: { message_scalars, generators } });
 			}
+			if (M < 0) {
+				throw new Error("Not enough blind_generators", { cause: { M, blind_generators } });
+			}
 			const [Q_1, ...H_Points] = generators;
 			const msg = message_scalars;
+			const [Q_2, ...J_Points] = blind_generators;
+			const domain = await calculate_domain(PK, Q_1, [...H_Points, Q_2, ...J_Points], header, api_id);
 			const B = sumprod([P1, Q_1, ...H_Points, commitment], [1n, domain, ...msg, 1n]);
 			if (B.is0()) {
-				throw new Error("B must not be Identity_G1", { cause: { generators, commitment, message_scalars } });
+				throw new Error("B must not be Identity_G1", { cause: { generators, blind_generators, commitment, message_scalars, header, api_id } });
 			}
 			return [B];
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-blind-challenge-calculation */
 		function calculate_blind_challenge(
 			C: PointG1,
 			Cbar: PointG1,
@@ -724,7 +894,50 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			return hash_to_scalar(c_octs, blind_challenge_dst);
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-commitment-with-proof-to-oc */
+		async function BlindProofChallengeCalculate(
+			init_res: [PointG1, PointG1, PointG1, PointG1, PointG1, bigint],
+			commitment_init_res: { commitments: PointG1[], commitments_proofs: PointG1[], commitment_indexes: number[] },
+			disclosed_messages: bigint[],
+			disclosed_indexes: number[],
+			ph: BufferSource,
+			api_id: BufferSource,
+		): Promise<bigint> {
+			const hash_to_scalar_dst = concat(api_id, toUtf8("H2S_"));
+
+			const [Abar, Bbar, D, T1, T2, domain] = init_res;
+
+			const R = disclosed_indexes.length;
+			const ii = disclosed_indexes;
+			if (disclosed_messages.length !== R) {
+				throw new Error("Disclosed messages and indexes not of matching lengths", { cause: { disclosed_messages, disclosed_indexes } });
+			}
+			const msg = disclosed_messages;
+
+			const N = commitment_init_res.commitments.length;
+			if (commitment_init_res.commitments_proofs.length !== N) {
+				throw new Error("Wrong length of commitments_proofs", { cause: { commitment_init_res } });
+			}
+			if (commitment_init_res.commitment_indexes.length !== N) {
+				throw new Error("Wrong length of commitment_indexes", { cause: { commitment_init_res } });
+			}
+			const C = commitment_init_res.commitments;
+			const C_tilde = commitment_init_res.commitments_proofs;
+			const i_i = commitment_init_res.commitment_indexes;
+
+			if (R > Math.pow(2, 64) - 1) {
+				throw new Error("Too many disclosed indexes", { cause: { disclosed_indexes } });
+			}
+			if (ph.byteLength > Math.pow(2, 64) - 1) {
+				throw new Error("Presentation header too long", { cause: { ph } });
+			}
+
+			const c_arr = [R, ...ii.flatMap((ii, i) => [ii, msg[i]]), Abar, Bbar, D, T1, T2, domain];
+			const commitment_arr = [N, ...i_i.flatMap((i_i, i) => [i_i, C[i], C_tilde[i]])];
+			const c_octs = concat(serialize(c_arr), serialize(commitment_arr), I2OSP(ph.byteLength, 8), ph);
+			return await hash_to_scalar(c_octs, hash_to_scalar_dst);
+		}
+
+
 		function commitment_with_proof_to_octets(
 			commitment: PointG1,
 			proof: [bigint, bigint[], bigint],
@@ -735,7 +948,6 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			return concat(commitment_octs, proof_octs);
 		}
 
-		/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-octet-to-commitment-with-pr */
 		function octets_to_commitment_with_proof(
 			commitment_octs: Uint8Array,
 		): [PointG1, [bigint, bigint[], bigint]] {
@@ -769,8 +981,88 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			if (j < 2) {
 				throw new Error("Too few scalars", { cause: { j, commitment_octs } });
 			}
-			const msg_commitment = s.slice(1, j - 1);
+			const msg_commitment = (
+				j >= 3
+				? s.slice(1, j - 1)
+				: []
+			);
 			return [C, [s[0], msg_commitment, s[j - 1]]];
+		}
+
+		function blind_proof_to_octets(
+			bbs_proof_len: number,
+			bbs_proof: BufferSource,
+			commitments_count: number,
+			commitments_proof: [PointG1[], bigint[]],
+		) {
+			const oct = concat(
+				I2OSP(bbs_proof_len, 8),
+				bbs_proof,
+				I2OSP(commitments_count, 8),
+				serialize(commitments_proof.flat()),
+			);
+			return oct;
+		}
+
+		function blind_octets_to_proof(proof_octets: BufferSource): [
+			[PointG1, PointG1, PointG1, bigint, bigint, bigint, bigint[], bigint],
+			[PointG1[], bigint[]],
+		] {
+			const int_octet_length = 8;
+			const r = Fr.ORDER;
+
+			const proof_octets_u8 = toU8(proof_octets);
+			let sidx = 0;
+			let eidx = int_octet_length;
+			if (proof_octets.byteLength < eidx) {
+				throw new Error("Proof too short", { cause: { proof_octets_u8 } });
+			}
+			const bbs_proof_len = Number(OS2IP(proof_octets_u8.slice(sidx, eidx)));
+
+			sidx = eidx;
+			eidx = sidx + bbs_proof_len;
+			if (proof_octets.byteLength < eidx) {
+				throw new Error(`Proof too short: expected at least ${eidx} octets, was ${proof_octets.byteLength}`, { cause: { proof_octets, eidx } });
+			}
+			const bbs_proof_octs = proof_octets_u8.slice(sidx, eidx);
+			const bbs_proof = octets_to_proof(bbs_proof_octs);
+
+			sidx = eidx;
+			eidx = sidx + int_octet_length;
+			if (proof_octets.byteLength < eidx) {
+				throw new Error(`Proof too short: expected at least ${eidx} octets, was ${proof_octets.byteLength}`, { cause: { proof_octets, eidx } });
+			}
+			const N = Number(OS2IP(proof_octets_u8.slice(sidx, eidx)));
+
+			const len_floor = eidx + N * (octet_point_length + octet_scalar_length);
+			if (proof_octets.byteLength < len_floor) {
+				throw new Error(`Proof too short: expected at least ${len_floor} octets, was ${proof_octets.byteLength}`, { cause: { proof_octets, len_floor } });
+			}
+
+			const C = range(N).map(() => {
+				sidx = eidx;
+				eidx = sidx + octet_point_length;
+				// TODO: Check that @noble/curves does the subgroup check
+				return octets_to_point_E1(proof_octets_u8.slice(sidx, eidx));
+			});
+
+			const s = range(N).map(() => {
+				sidx = eidx;
+				eidx = sidx + octet_scalar_length;
+				const s = OS2IP(proof_octets_u8.slice(sidx, eidx));
+				if (s <= 0n || s >= r) {
+					throw new Error(`Scalar out of range: ${s}`, { cause: { s, r } });
+				}
+				return s;
+			});
+
+			const commitments_proof: [PointG1[], bigint[]] = [C, s];
+
+			if (proof_octets.byteLength !== eidx) {
+				throw new Error("Trailing octets", { cause: { proof_octets, eidx } });
+			}
+
+			return [bbs_proof, commitments_proof];
 		}
 
 		return {
@@ -1072,6 +1364,8 @@ type VerifyFunction = (PK: BufferSource, signature: BufferSource, header: Buffer
 type ProofGenFunction = (PK: BufferSource, signature: BufferSource, header: BufferSource | null, ph: BufferSource | null, messages: BufferSource[] | null, disclosed_indexes: number[] | null) => Promise<BufferSource>;
 type ProofVerifyFunction = (PK: BufferSource, proof: BufferSource, header: BufferSource | null, ph: BufferSource | null, disclosed_messages: BufferSource[] | null, disclosed_indexes: number[] | null) => Promise<true>;
 
+export type DisclosureChoice = "DISCLOSE" | "HIDE" | "COMMIT";
+
 
 export type SuiteId = 'BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_';
 
@@ -1120,40 +1414,34 @@ type BlindBbsSuite = {
 		messages: BufferSource[] | null,
 	): Promise<BufferSource>;
 
-	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-blind-signature-verificatio */
 	VerifyBlindSign(
 		PK: BufferSource,
 		signature: BufferSource,
 		header: BufferSource | null,
 		messages: BufferSource[] | null,
-		committed_messages: BufferSource[] | null,
+		issuer_known_messages_no: number | null,
 		secret_prover_blind: bigint | null,
 	): Promise<true>;
 
-	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-proof-generation */
 	BlindProofGen(
 		PK: BufferSource,
 		signature: BufferSource,
 		header: BufferSource | null,
 		ph: BufferSource | null,
 		messages: BufferSource[] | null,
-		committed_messages: BufferSource[] | null,
-		disclosed_indexes: number[] | null,
-		disclosed_commitment_indexes: number[] | null,
+		issuer_known_messages_no: number | null,
+		message_disclosures: DisclosureChoice[] | null,
 		secret_prover_blind: bigint | null,
-	): Promise<BufferSource>;
+	): Promise<[BufferSource, [bigint[], bigint[]]]>;
 
-	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-proof-verification */
 	BlindProofVerify(
 		PK: BufferSource,
 		proof: BufferSource,
 		header: BufferSource | null,
 		ph: BufferSource | null,
-		L: number,
+		issuer_known_messages_no: number | null,
 		disclosed_messages: BufferSource[] | null,
-		disclosed_committed_messages: BufferSource[] | null,
-		disclosed_indexes: number[] | null,
-		disclosed_committed_indexes: number[] | null,
+		message_disclosures: DisclosureChoice[] | null,
 	): Promise<true>;
 
 	create_unblind_generators(count: number): Promise<PointG1[]>,

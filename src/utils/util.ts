@@ -148,3 +148,7 @@ export function generateRandomIdentifier(length: number) {
 export function range(n: number): number[] {
 	return Array(n).fill(0).map((_, i) => i);
 }
+
+export function isStrictlyIncreasing(arr: number[]): boolean {
+	return arr.every((i, ii) => (ii == 0 || arr[ii - 1] < arr[ii]));
+}
