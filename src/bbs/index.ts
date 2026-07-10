@@ -706,14 +706,13 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const N = commitment_indexes.length;
 			const R = disclosed_indexes.length;
 			const U = L - R;
-			const ii = disclosed_indexes;
 			const disclosed_messages = disclosed_indexes.map(i => messages[i]);
 			const undisclosed_indexes = range(L).filter(i => !disclosed_set.has(i));
 			const ji = undisclosed_indexes;
 			const undisclosed_messages = undisclosed_indexes.map(i => messages[i]);
 
 			const init_random_scalars = await calculate_random_scalars(5 + U);
-			const [r1, r2, r_tilde, r1_tilde, r3_tilde, ...m_tilde] = init_random_scalars;
+			const [_r1, _r2, _r_tilde, _r1_tilde, _r3_tilde, ...m_tilde] = init_random_scalars;
 			const init_res = await ProofInit(
 				PK,
 				signature_result,
