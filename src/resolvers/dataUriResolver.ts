@@ -55,14 +55,16 @@ export function dataUriResolver({
 				preferredLangs
 			);
 
-			const svgTemplates = credentialDisplayLocalized?.rendering?.svg_templates;
+			const svgTemplates =
+				credentialDisplayLocalized?.rendering?.svg_templates ??
+				issuerDisplayLocalized?.rendering?.svg_templates;
 			const selectedSvgTemplate = pickBestSvgTemplate(svgTemplates, preferredProperties);
 			const svgTemplateUri = selectedSvgTemplate?.uri ?? null;
 
 			const simpleDisplayConfig =
 				credentialDisplayLocalized?.rendering?.simple || null;
 
-			// 1. Try SVG template rendering (SD-JWT VC)
+			// 1. Try SVG template rendering
 			if (svgTemplateUri && sdJwtVcRenderer) {
 				let credentialImageSvgTemplate: string | undefined;
 
