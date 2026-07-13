@@ -730,7 +730,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const Cs_and_C_tildes = commitment_indexes.map((idx, i) => {
 				const Ci = Y_0.multiply(s[i]).add(Y_1.multiply(messages[idx]));
 				const k = ji.indexOf(idx);
-				const C_tilde_i = Y_0.multiply(s_tilde[i]).add(Y_1.multiply(m_tilde[ji[k]]));
+				const C_tilde_i = Y_0.multiply(s_tilde[i]).add(Y_1.multiply(m_tilde[k]));
 				return [Ci, C_tilde_i];
 			});
 
@@ -817,7 +817,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 			const C_hat = commitment_indexes.map((idx, i) => {
 				const k = ji.indexOf(idx);
-				const C_hat_i = Y_0.multiply(s_hat[i]).add(Y_1.multiply(m_hat[ji[k]])).subtract(C[i].multiply(cp));
+				const C_hat_i = Y_0.multiply(s_hat[i]).add(Y_1.multiply(m_hat[k])).subtract(C[i].multiply(cp));
 				return C_hat_i;
 			});
 
