@@ -799,7 +799,252 @@ describe("Suite:", () => {
 					);
 					const header = fromHex("11223344556677889900aabbccddeeff");
 
-					it("proof with some messages disclosed, committed and hidden", async () => {
+					it("proof with no messages", async () => {
+						const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
+						const messages = null;
+						const committed_messages = null;
+
+						const [commitment_with_proof, secret_prover_blind] = await Commit(committed_messages);
+						const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
+
+						const message_disclosures: DisclosureChoice[] = [];
+
+						const [proof,] = await BlindProofGen(
+							PK,
+							signature,
+							header,
+							presentation_header,
+							[],
+							0,
+							message_disclosures,
+							secret_prover_blind,
+						);
+
+						const L = 0;
+						assert(await BlindProofVerify(PK, proof, header, presentation_header, L, [], message_disclosures));
+					});
+
+					describe("proof with no prover messages, and", async () => {
+						const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
+						const messages = [
+							fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"),
+							fromHex("c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80"),
+							fromHex("7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73"),
+							fromHex("77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c"),
+							fromHex("496694774c5604ab1b2544eababcf0f53278ff50"),
+							fromHex("515ae153e22aae04ad16f759e07237b4"),
+							fromHex("d183ddc6e2665aa4e2f088af"),
+							fromHex("ac55fb33a75909ed"),
+							fromHex("96012096"),
+							fromHex(""),
+						];
+						const committed_messages = null;
+
+						const [commitment_with_proof, secret_prover_blind] = await Commit(committed_messages);
+						const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
+
+						it("all messages disclosed", async () => {
+							const message_disclosures: DisclosureChoice[] = range(messages.length).map(i => "DISCLOSE");
+							const [proof,] = await BlindProofGen(
+								PK,
+								signature,
+								header,
+								presentation_header,
+								messages,
+								10,
+								message_disclosures,
+								secret_prover_blind,
+							);
+
+							const L = 10;
+							assert(await BlindProofVerify(PK, proof, header, presentation_header, L, messages, message_disclosures));
+						});
+
+						it("all messages committed", async () => {
+							const message_disclosures: DisclosureChoice[] = range(messages.length).map(i => "COMMIT");
+							const [proof,] = await BlindProofGen(
+								PK,
+								signature,
+								header,
+								presentation_header,
+								messages,
+								10,
+								message_disclosures,
+								secret_prover_blind,
+							);
+
+							const L = 10;
+							assert(await BlindProofVerify(PK, proof, header, presentation_header, L, [], message_disclosures));
+						});
+
+						it("all messages hidden", async () => {
+							const message_disclosures: DisclosureChoice[] = range(messages.length).map(i => "HIDE");
+							const [proof,] = await BlindProofGen(
+								PK,
+								signature,
+								header,
+								presentation_header,
+								messages,
+								10,
+								message_disclosures,
+								secret_prover_blind,
+							);
+
+							const L = 10;
+							assert(await BlindProofVerify(PK, proof, header, presentation_header, L, [], message_disclosures));
+						});
+
+						describe("all messages hidden", async () => {
+							const message_disclosures: DisclosureChoice[] = range(messages.length).map(i => "HIDE");
+
+							for (let i = 0; i < messages.length; ++i) {
+								it(`is invalid if message ${i} is modified`, async () => {
+									const [proof,] = await BlindProofGen(
+										PK,
+										signature,
+										header,
+										presentation_header,
+										messages,
+										10,
+										message_disclosures,
+										secret_prover_blind,
+									);
+									const [bad_proof,] = await BlindProofGen(
+										PK,
+										signature,
+										header,
+										presentation_header,
+										messages.map((m, ii) => ii === i ? concat(m, fromHex("00")) : m),
+										10,
+										message_disclosures,
+										secret_prover_blind,
+									);
+
+									assert(await BlindProofVerify(PK, proof, header, presentation_header, 10, [], message_disclosures));
+									await asyncAssertThrows(
+										() => BlindProofVerify(PK, bad_proof, header, presentation_header, 10, [], message_disclosures),
+										"Expected invalid proof to fail verification",
+									);
+								});
+							}
+						});
+
+						it("some messages disclosed, committed and hidden", async () => {
+							const options: DisclosureChoice[] = ["DISCLOSE", "COMMIT", "HIDE"];
+							const message_disclosures: DisclosureChoice[] = range(messages.length).map(i => options[i % 3]);
+							const [proof,] = await BlindProofGen(
+								PK,
+								signature,
+								header,
+								presentation_header,
+								messages,
+								10,
+								message_disclosures,
+								secret_prover_blind,
+							);
+
+							const L = 10;
+							assert(await BlindProofVerify(
+								PK,
+								proof,
+								header,
+								presentation_header,
+								L,
+								messages.filter((_, i) => message_disclosures[i] === "DISCLOSE"),
+								message_disclosures,
+							));
+						});
+					});
+
+					describe("proof with no signer messages, and", async () => {
+						const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
+						const messages = null;
+						const committed_messages = [
+							fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
+							fromHex("a75d8b634891af92282cc81a675972d1929d3149863c1fc0"),
+							fromHex("835889a40744813a892eff9deb1edaeb"),
+							fromHex("e1ca9729410dc6ba"),
+							fromHex(""),
+						];
+
+						const [commitment_with_proof, secret_prover_blind] = await Commit(committed_messages);
+						const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
+
+						it("all messages disclosed", async () => {
+							const message_disclosures: DisclosureChoice[] = range(committed_messages.length).map(i => "DISCLOSE");
+							const [proof,] = await BlindProofGen(
+								PK,
+								signature,
+								header,
+								presentation_header,
+								committed_messages,
+								0,
+								message_disclosures,
+								secret_prover_blind,
+							);
+
+							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, committed_messages, message_disclosures));
+						});
+
+						it("all messages committed", async () => {
+							const message_disclosures: DisclosureChoice[] = range(committed_messages.length).map(i => "COMMIT");
+							const [proof,] = await BlindProofGen(
+								PK,
+								signature,
+								header,
+								presentation_header,
+								committed_messages,
+								0,
+								message_disclosures,
+								secret_prover_blind,
+							);
+
+							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, [], message_disclosures));
+						});
+
+						it("all messages hidden", async () => {
+							const message_disclosures: DisclosureChoice[] = range(committed_messages.length).map(i => "HIDE");
+							const [proof,] = await BlindProofGen(
+								PK,
+								signature,
+								header,
+								presentation_header,
+								committed_messages,
+								0,
+								message_disclosures,
+								secret_prover_blind,
+							);
+
+							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, [], message_disclosures));
+						});
+
+						it("some messages disclosed, committed and hidden", async () => {
+							const options: DisclosureChoice[] = ["DISCLOSE", "COMMIT", "HIDE"];
+							const message_disclosures: DisclosureChoice[] = range(committed_messages.length).map(i => options[i % 3]);
+							const [proof,] = await BlindProofGen(
+								PK,
+								signature,
+								header,
+								presentation_header,
+								committed_messages,
+								0,
+								message_disclosures,
+								secret_prover_blind,
+							);
+
+							assert(await BlindProofVerify(
+								PK,
+								proof,
+								header,
+								presentation_header,
+								0,
+								committed_messages.filter((_, i) => message_disclosures[i] === "DISCLOSE"),
+								message_disclosures,
+							));
+						});
+					});
+
+					describe("proof with prover and signer messages, and", async () => {
 						const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
 						const messages = [
 							fromHex("9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02"),
@@ -824,29 +1069,103 @@ describe("Suite:", () => {
 						const [commitment_with_proof, secret_prover_blind] = await Commit(committed_messages);
 						const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
 
-						const options: DisclosureChoice[] = ["DISCLOSE", "COMMIT", "HIDE"];
-						const message_disclosures: DisclosureChoice[] = range(messages.length + committed_messages.length).map(i => options[i % 3]);
-						const [proof,] = await BlindProofGen(
-							PK,
-							signature,
-							header,
-							presentation_header,
-							[...messages, ...committed_messages],
-							10,
-							message_disclosures,
-							secret_prover_blind,
-						);
+						it("all messages disclosed", async () => {
+							const message_disclosures: DisclosureChoice[] = range(messages.length + committed_messages.length).map(i => "DISCLOSE");
+							const [proof,] = await BlindProofGen(
+								PK,
+								signature,
+								header,
+								presentation_header,
+								[...messages, ...committed_messages],
+								10,
+								message_disclosures,
+								secret_prover_blind,
+							);
 
-						const L = 10;
-						assert(await BlindProofVerify(
-							PK,
-							proof,
-							header,
-							presentation_header,
-							L,
-							[...messages, ...committed_messages].filter((_, i) => message_disclosures[i] === "DISCLOSE"),
-							message_disclosures,
-						));
+							assert(await BlindProofVerify(
+								PK,
+								proof,
+								header,
+								presentation_header,
+								10,
+								[...messages, ...committed_messages],
+								message_disclosures,
+							));
+						});
+
+						it("all messages committed", async () => {
+							const message_disclosures: DisclosureChoice[] = range(messages.length + committed_messages.length).map(i => "COMMIT");
+							const [proof,] = await BlindProofGen(
+								PK,
+								signature,
+								header,
+								presentation_header,
+								[...messages, ...committed_messages],
+								10,
+								message_disclosures,
+								secret_prover_blind,
+							);
+
+							assert(await BlindProofVerify(
+								PK,
+								proof,
+								header,
+								presentation_header,
+								10,
+								[],
+								message_disclosures,
+							));
+						});
+
+						it("all messages hidden", async () => {
+							const message_disclosures: DisclosureChoice[] = range(messages.length + committed_messages.length).map(i => "HIDE");
+							const [proof,] = await BlindProofGen(
+								PK,
+								signature,
+								header,
+								presentation_header,
+								[...messages, ...committed_messages],
+								10,
+								message_disclosures,
+								secret_prover_blind,
+							);
+
+							assert(await BlindProofVerify(
+								PK,
+								proof,
+								header,
+								presentation_header,
+								10,
+								[],
+								message_disclosures,
+							));
+						});
+
+						it("some messages disclosed, committed and hidden", async () => {
+							const options: DisclosureChoice[] = ["DISCLOSE", "COMMIT", "HIDE"];
+							const message_disclosures: DisclosureChoice[] = range(messages.length + committed_messages.length).map(i => options[i % 3]);
+							const [proof,] = await BlindProofGen(
+								PK,
+								signature,
+								header,
+								presentation_header,
+								[...messages, ...committed_messages],
+								10,
+								message_disclosures,
+								secret_prover_blind,
+							);
+
+							const L = 10;
+							assert(await BlindProofVerify(
+								PK,
+								proof,
+								header,
+								presentation_header,
+								L,
+								[...messages, ...committed_messages].filter((_, i) => message_disclosures[i] === "DISCLOSE"),
+								message_disclosures,
+							));
+						});
 					});
 				});
 
