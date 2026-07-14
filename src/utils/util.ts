@@ -76,6 +76,31 @@ export function I2OSP(a: bigint | number, length: number): ArrayBuffer {
 	}
 }
 
+/**
+	Split `b` at index `l`, returning the slice of the first `l` elements
+	followed by the slice of remaining elements.
+*/
+export function split_at(b: Uint8Array, l: number): [Uint8Array, Uint8Array] {
+	const head = b.slice(0, l);
+	const tail = b.slice(l);
+	return [head, tail];
+}
+
+/**
+	Split `b` into sections of lengths `lengths`, returning the split sections and
+	the remainder of the byte array.
+*/
+export function split_sections(b: Uint8Array, lengths: number[]): [Uint8Array[], Uint8Array] {
+	return lengths.reduce<[Uint8Array[], Uint8Array]>(
+		([heads, tail], l) => {
+			const [next_head, next_tail] = split_at(tail, l);
+			return [[...heads, next_head], next_tail];
+		},
+		[[], b],
+	);
+}
+
+
 export function toBase64(binary: BufferSource): string {
 	const uint8Array = toU8(binary);
 	const chunkSize = 0x8000; // 32KB
