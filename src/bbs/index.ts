@@ -926,7 +926,12 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				api_id,
 			);
 
-			const bbs_proof = ProofFinalize(init_res, challenge, e, init_random_scalars, undisclosed_messages);
+			const r3 = Fr.inv(r2);
+			const ehat = Fr.add(e_tilde, Fr.mul(e, challenge));
+			const r1hat = Fr.sub(r1_tilde, Fr.mul(r1, challenge));
+			const r3hat = Fr.sub(r3_tilde, Fr.mul(r3, challenge));
+			const mhatj = m_tilde.map((m_tilde_j, j) => Fr.add(m_tilde_j, Fr.mul(undisclosed_messages[j], challenge)));
+			const bbs_proof = proof_to_octets([Abar, Bbar, D, ehat, r1hat, r3hat, mhatj, challenge]);
 
 			const s_hat = s_tilde.map((s_tilde, i) => Fr.add(s_tilde, Fr.mul(challenge, s[i])));
 			const commitments_proof: [PointG1[], bigint[]] = [commitment_init_res.commitments, s_hat];
