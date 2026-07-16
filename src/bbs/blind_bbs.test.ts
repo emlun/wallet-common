@@ -658,7 +658,7 @@ describe("Suite:", () => {
 
 						it("proof with no commitment or messages", async () => {
 							const signature = await BlindSign(SK, PK, null, header, null);
-							const [proof] = await BlindProofGen(PK, signature, header, presentation_header, null, null, null, null);
+							const [proof] = await BlindProofGen(PK, signature, header, presentation_header, null, null, null, null, null);
 							assert(await BlindProofVerify(PK, proof, header, presentation_header, null, null, null));
 						});
 
@@ -667,7 +667,7 @@ describe("Suite:", () => {
 							const signature = await BlindSign(SK, PK, commitment_with_proof, header, null);
 							const [proof] = await BlindProofGen(
 								PK, signature, header, presentation_header,
-								null, null, null,
+								null, null, null, null,
 								secret_prover_blind,
 							);
 							assert(await BlindProofVerify(PK, proof, header, presentation_header, null, null, null));
@@ -676,37 +676,37 @@ describe("Suite:", () => {
 						it("proof with all prover messages disclosed", async () => {
 							const [commitment_with_proof, secret_prover_blind] = await Commit(committed_messages);
 							const signature = await BlindSign(SK, PK, commitment_with_proof, header, null);
-							const message_disclosures: DisclosureChoice[] = committed_messages.map(() => "DISCLOSE");
+							const committed_message_disclosures: DisclosureChoice[] = committed_messages.map(() => "DISCLOSE");
 							const [proof] = await BlindProofGen(
 								PK, signature, header, presentation_header,
-								committed_messages, 0, message_disclosures,
+								null, committed_messages, null, committed_message_disclosures,
 								secret_prover_blind,
 							);
-							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, committed_messages, message_disclosures));
+							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, committed_messages, committed_message_disclosures));
 						});
 
 						it("proof with all prover messages committed", async () => {
 							const [commitment_with_proof, secret_prover_blind] = await Commit(committed_messages);
 							const signature = await BlindSign(SK, PK, commitment_with_proof, header, null);
-							const message_disclosures: DisclosureChoice[] = committed_messages.map(() => "COMMIT");
+							const committed_message_disclosures: DisclosureChoice[] = committed_messages.map(() => "COMMIT");
 							const [proof] = await BlindProofGen(
 								PK, signature, header, presentation_header,
-								committed_messages, 0, message_disclosures,
+								null, committed_messages, null, committed_message_disclosures,
 								secret_prover_blind,
 							);
-							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, [], message_disclosures));
+							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, [], committed_message_disclosures));
 						});
 
 						it("proof with all prover messages hidden", async () => {
 							const [commitment_with_proof, secret_prover_blind] = await Commit(committed_messages);
 							const signature = await BlindSign(SK, PK, commitment_with_proof, header, null);
-							const message_disclosures: DisclosureChoice[] = committed_messages.map(() => "HIDE");
+							const committed_message_disclosures: DisclosureChoice[] = committed_messages.map(() => "HIDE");
 							const [proof] = await BlindProofGen(
 								PK, signature, header, presentation_header,
-								committed_messages, 0, message_disclosures,
+								null, committed_messages, null, committed_message_disclosures,
 								secret_prover_blind,
 							);
-							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, [], message_disclosures));
+							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, [], committed_message_disclosures));
 						});
 
 						it("proof on staged commitment with no messages", async () => {
@@ -715,7 +715,7 @@ describe("Suite:", () => {
 							const signature = await BlindSign(SK, PK, commitment_with_proof, header, null);
 							const [proof] = await BlindProofGen(
 								PK, signature, header, presentation_header,
-								null, null, null,
+								null, null, null, null,
 								secret_prover_blind,
 							);
 							assert(await BlindProofVerify(PK, proof, header, presentation_header, null, null, null));
@@ -725,39 +725,39 @@ describe("Suite:", () => {
 							const [state, secret_prover_blind,] = await CommitInit(committed_messages, null);
 							const commitment_with_proof = await CommitFinalize(state, null);
 							const signature = await BlindSign(SK, PK, commitment_with_proof, header, null);
-							const message_disclosures: DisclosureChoice[] = committed_messages.map(() => "DISCLOSE");
+							const committed_message_disclosures: DisclosureChoice[] = committed_messages.map(() => "DISCLOSE");
 							const [proof] = await BlindProofGen(
 								PK, signature, header, presentation_header,
-								committed_messages, 0, message_disclosures,
+								null, committed_messages, null, committed_message_disclosures,
 								secret_prover_blind,
 							);
-							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, committed_messages, message_disclosures));
+							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, committed_messages, committed_message_disclosures));
 						});
 
 						it("proof on staged commitment with all prover messages committed", async () => {
 							const [state, secret_prover_blind,] = await CommitInit(committed_messages, null);
 							const commitment_with_proof = await CommitFinalize(state, null);
 							const signature = await BlindSign(SK, PK, commitment_with_proof, header, null);
-							const message_disclosures: DisclosureChoice[] = committed_messages.map(() => "COMMIT");
+							const committed_message_disclosures: DisclosureChoice[] = committed_messages.map(() => "COMMIT");
 							const [proof] = await BlindProofGen(
 								PK, signature, header, presentation_header,
-								committed_messages, 0, message_disclosures,
+								null, committed_messages, null, committed_message_disclosures,
 								secret_prover_blind,
 							);
-							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, [], message_disclosures));
+							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, [], committed_message_disclosures));
 						});
 
 						it("proof on staged commitment with all prover messages hidden", async () => {
 							const [state, secret_prover_blind,] = await CommitInit(committed_messages, null);
 							const commitment_with_proof = await CommitFinalize(state, null);
 							const signature = await BlindSign(SK, PK, commitment_with_proof, header, null);
-							const message_disclosures: DisclosureChoice[] = committed_messages.map(() => "HIDE");
+							const committed_message_disclosures: DisclosureChoice[] = committed_messages.map(() => "HIDE");
 							const [proof] = await BlindProofGen(
 								PK, signature, header, presentation_header,
-								committed_messages, 0, message_disclosures,
+								null, committed_messages, null, committed_message_disclosures,
 								secret_prover_blind,
 							);
-							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, [], message_disclosures));
+							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, [], committed_message_disclosures));
 						});
 
 					});

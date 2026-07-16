@@ -530,35 +530,40 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			signature: BufferSource,
 			header: BufferSource | null,
 			ph: BufferSource | null,
-			messages: BufferSource[] | null,
-			issuer_known_messages_no: number | null,
-			message_disclosures: DisclosureChoice[] | null,
+			signer_messages: BufferSource[] | null,
+			prover_messages: BufferSource[] | null,
+			signer_message_disclosures: DisclosureChoice[] | null,
+			prover_message_disclosures: DisclosureChoice[] | null,
 			secret_prover_blind: bigint | null,
 		): Promise<[BufferSource, [bigint[], bigint[]]]> {
 			header = header ?? new Uint8Array([]);
 			ph = ph ?? new Uint8Array([]);
-			messages = messages ?? [];
-			issuer_known_messages_no = issuer_known_messages_no ?? 0;
-			message_disclosures = message_disclosures ?? [],
+			signer_messages = signer_messages ?? [];
+			prover_messages = prover_messages ?? [];
+			signer_message_disclosures = signer_message_disclosures ?? [];
+			prover_message_disclosures = prover_message_disclosures ?? [];
 			secret_prover_blind = secret_prover_blind ?? 0n;
 
-			const L = messages.length;
-			if (message_disclosures.length !== L) {
-				throw new Error("Invalid disclosure map", { cause: { messages, message_disclosures } });
+			const L = signer_messages.length + prover_messages.length;
+			const N = signer_messages.length;
+			if (signer_message_disclosures.length !== signer_messages.length) {
+				throw new Error("Invalid disclosures", { cause: { signer_messages, signer_message_disclosures } });
 			}
-			if (issuer_known_messages_no > L) {
-				throw new Error("Too many issuer-known messages", { cause: { messages, issuer_known_messages_no } });
+			if (prover_message_disclosures.length !== prover_messages.length) {
+				throw new Error("Invalid disclosures", { cause: { prover_messages, prover_message_disclosures } });
 			}
+			const messages = [...signer_messages, ...prover_messages];
+			const message_disclosures = [...signer_message_disclosures, ...prover_message_disclosures];
 			const disclosed_indexes = range(L).filter(i => message_disclosures[i] === "DISCLOSE");
 			const commitment_indexes = range(L).filter(i => message_disclosures[i] === "COMMIT");
 
-			const generators = await create_unblind_generators(issuer_known_messages_no + 1);
-			const blind_generators = await create_blind_generators(L - issuer_known_messages_no + 1);
+			const generators = await create_unblind_generators(N + 1);
+			const blind_generators = await create_blind_generators(L - N + 1);
 			const message_scalars = await messages_to_scalars(messages, api_id);
-			const signer_scalars = message_scalars.slice(0, issuer_known_messages_no);
-			const committed_message_scalars = message_scalars.slice(issuer_known_messages_no);
+			const signer_scalars = message_scalars.slice(0, N);
+			const committed_message_scalars = message_scalars.slice(N);
 			const proof_scalars = [...signer_scalars, secret_prover_blind, ...committed_message_scalars];
-			const proof_index = range(L).map(i => i < issuer_known_messages_no ? i : i + 1);
+			const proof_index = range(L).map(i => i < N ? i : i + 1);
 			const proof_disclosed_indexes = disclosed_indexes.map(i => proof_index[i]);
 			const proof_commitment_indexes = commitment_indexes.map(i => proof_index[i]);
 			const proof_with_add_zkp_info = await BlindCoreProofGen(
@@ -1682,9 +1687,10 @@ type BlindBbsSuite = {
 		signature: BufferSource,
 		header: BufferSource | null,
 		ph: BufferSource | null,
-		messages: BufferSource[] | null,
-		issuer_known_messages_no: number | null,
-		message_disclosures: DisclosureChoice[] | null,
+		signer_messages: BufferSource[] | null,
+		prover_messages: BufferSource[] | null,
+		signer_message_disclosures: DisclosureChoice[] | null,
+		prover_message_disclosures: DisclosureChoice[] | null,
 		secret_prover_blind: bigint | null,
 	): Promise<[BufferSource, [bigint[], bigint[]]]>;
 
