@@ -866,7 +866,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const [Y_0, Y_1] = await create_generators(2, concat(toUtf8("COM_DIS_"), api_id));
 
 			const signature_result = octets_to_signature(signature);
-			const [_A, e] = signature_result;
+			const [A, e] = signature_result;
 			const L = messages.length;
 			if (!(isStrictlyIncreasing(commitment_indexes) && commitment_indexes.every(i => i >= 0 && i < L))) {
 				throw new Error("Invalid commitment_indexes", { cause: { commitment_indexes } });
@@ -887,17 +887,19 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const undisclosed_messages = undisclosed_indexes.map(i => messages[i]);
 
 			const init_random_scalars = await calculate_random_scalars(5 + U);
-			const [_r1, _r2, _r_tilde, _r1_tilde, _r3_tilde, ...m_tilde] = init_random_scalars;
-			const init_res = await ProofInit(
-				PK,
-				signature_result,
-				generators,
-				init_random_scalars,
-				header,
-				messages,
-				undisclosed_indexes,
-				api_id,
-			);
+			const [r1, r2, e_tilde, r1_tilde, r3_tilde, ...m_tilde] = init_random_scalars;
+
+			const [Q1, ...MsgGenerators] = generators;
+			const Hj = undisclosed_indexes.map(j => MsgGenerators[j]);
+			const domain = await calculate_domain(PK, Q1, MsgGenerators, header, api_id);
+			const B = P1.add(Q1.multiply(domain)).add(sumprod(MsgGenerators, messages));
+			const D = B.multiply(r2);
+			const Abar = A.multiply(Fr.mul(r1, r2));
+			const Bbar = D.multiply(r1).subtract(Abar.multiply(e));
+
+			const T1 = Abar.multiply(e_tilde).add(D.multiply(r1_tilde));
+			const T2 = D.multiply(r3_tilde).add(sumprod(Hj, m_tilde));
+			const init_res: [PointG1, PointG1, PointG1, PointG1, PointG1, bigint] = [Abar, Bbar, D, T1, T2, domain];
 
 			const s_and_s_tilde = await calculate_random_scalars(2 * N);
 			const s = s_and_s_tilde.slice(0, N);
