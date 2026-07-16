@@ -956,7 +956,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 			const proof_res = blind_octets_to_proof(proof);
 			const [bbs_proof_res, commitments_proof_res] = proof_res;
-			const [Abar, Bbar, _D, _ehat, _r1hat, _r3hat, hats, cp] = bbs_proof_res;
+			const [Abar, Bbar, D, ehat, r1hat, r3hat, hats, cp] = bbs_proof_res;
 			const [commitments, commitments_proof] = commitments_proof_res;
 
 			const N = commitments.length;
@@ -990,7 +990,19 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const C = commitments;
 			const s_hat = commitments_proof;
 
-			const init_res = await ProofVerifyInit(PK, bbs_proof_res, generators, header, disclosed_messages, disclosed_indexes, api_id);
+			const Q1 = generators[0];
+			const MsgGenerators = generators.slice(1);
+			const H_Points = MsgGenerators;
+			const Hi_Points = disclosed_indexes.map(i => MsgGenerators[i]);
+			const Hj_Points = undisclosed_indexes.map(j => MsgGenerators[j]);
+
+			const domain = await calculate_domain(PK, Q1, H_Points, header, api_id);
+
+			const T1 = Bbar.multiply(cp).add(Abar.multiply(ehat)).add(D.multiply(r1hat));
+			const Bv = P1.add(Q1.multiply(domain)).add(sumprod(Hi_Points, disclosed_messages));
+			const T2 = Bv.multiply(cp).add(D.multiply(r3hat)).add(sumprod(Hj_Points, hats));
+
+			const init_res: [PointG1, PointG1, PointG1, PointG1, PointG1, bigint] = [Abar, Bbar, D, T1, T2, domain];
 
 			const C_hat = commitment_indexes.map((idx, i) => {
 				const k = ji.indexOf(idx);
