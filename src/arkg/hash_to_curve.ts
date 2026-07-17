@@ -15,7 +15,7 @@ function strxor(a: BufferSource, b: BufferSource): Uint8Array {
 }
 
 type HashFunction = (msg: BufferSource) => Promise<ArrayBuffer>;
-const sha256: HashFunction = (msg: BufferSource) => crypto.subtle.digest('SHA-256', msg);
+export const sha256: HashFunction = (msg: BufferSource) => crypto.subtle.digest('SHA-256', msg);
 const sha512: HashFunction = (msg: BufferSource) => crypto.subtle.digest('SHA-512', msg);
 
 type ExpandMessageFunction = (input: BufferSource, DST: BufferSource, len: number) => Promise<ArrayBuffer>;

@@ -652,7 +652,18 @@ describe("Suite:", () => {
 					const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
 
 					describe("Public API:", async () => {
-						const { BlindSign, BlindProofGen, BlindProofVerify, Commit, CommitInit, CoreCommitProve, CommitFinalize } = BlindBbs;
+						const {
+							BlindSign,
+							BlindProofGen,
+							BlindProofGenInit,
+							BlindProofGenFinalize,
+							BlindProofVerify,
+							Commit,
+							CommitInit,
+							CoreCommitProve,
+							CommitFinalize,
+							BlindProofGenKeyProve,
+						} = BlindBbs;
 
 						const committed_points_serialized: BufferSource[] = committed_points.map(K => serialize([K]));
 
@@ -760,6 +771,43 @@ describe("Suite:", () => {
 							assert(await BlindProofVerify(PK, proof, header, presentation_header, 0, [], committed_message_disclosures));
 						});
 
+						it("proof on staged commitment with mixed disclosures and multiple prover binding keys", async () => {
+							const [state, secret_prover_blind, challenge] = await CommitInit(committed_messages, committed_points_serialized);
+							const commitment_with_proof = await CommitFinalize(
+								state,
+								await Promise.all(prover_blind_scalars.map(
+									async (k, i) => serialize(await CoreCommitProve(k, prover_blind_generators[i], challenge)))),
+							);
+							const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
+							const options: DisclosureChoice[] = ["DISCLOSE", "COMMIT", "HIDE"];
+							const message_disclosures: DisclosureChoice[] = messages.map((_, i) => options[i % 4]);
+							const committed_message_disclosures: DisclosureChoice[] = committed_messages.map((_, i) => options[i % 4]);
+							const [incomplete_proof,, dpk_challenges, r_keys] = await BlindProofGenInit(
+								PK, signature, header, presentation_header,
+								messages, committed_messages, committed_points_serialized,
+								message_disclosures, committed_message_disclosures,
+								secret_prover_blind,
+							);
+							const proof = await BlindProofGenFinalize(
+								incomplete_proof,
+								r_keys,
+								await Promise.all(prover_blind_scalars.map((dsk, i) =>
+									BlindProofGenKeyProve(prover_blind_generators[i], dsk, dpk_challenges[i])
+								)),
+							);
+							assert(await BlindProofVerify(
+								PK,
+								proof,
+								header,
+								presentation_header,
+								messages.length,
+								[
+									...messages.filter((_, i) => message_disclosures[i] === "DISCLOSE"),
+									...committed_messages.filter((_, i) => committed_message_disclosures[i] === "DISCLOSE"),
+								],
+								[...message_disclosures, ...committed_message_disclosures],
+							));
+						});
 					});
 				});
 			});
