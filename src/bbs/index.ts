@@ -1,6 +1,6 @@
 /** Implementation of https://datatracker.ietf.org/doc/draft-irtf-cfrg-bbs-signatures/08/ */
 
-import type { BlsCurvePair } from "@noble/curves/abstract/bls";
+import type { BlsCurvePairWithHashers } from "@noble/curves/abstract/bls";
 import type { Fp2 } from "@noble/curves/abstract/tower";
 import { bls12_381 } from "@noble/curves/bls12-381.js";
 
@@ -539,7 +539,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			prover_message_disclosures: DisclosureChoice[] | null,
 			secret_prover_blind: bigint | null,
 		): Promise<[BufferSource, [bigint[], bigint[]]]> {
-			const [proof, add_zkp_info, _r_key_challenges] = await BlindProofGenInit(
+			const [state, add_zkp_info,] = await BlindProofGenInit(
 				PK,
 				signature,
 				header,
@@ -551,7 +551,10 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				prover_message_disclosures,
 				secret_prover_blind,
 			);
-			return [proof, add_zkp_info];
+			return [
+				toU8(state).slice(0, state.byteLength - octet_scalar_length),
+				add_zkp_info,
+			];
 		}
 
 		async function BlindProofGenInit(
@@ -565,7 +568,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			signer_message_disclosures: DisclosureChoice[] | null,
 			prover_message_disclosures: DisclosureChoice[] | null,
 			secret_prover_blind: bigint | null,
-		): Promise<[BufferSource, [bigint[], bigint[]], BufferSource[], BufferSource[]]> {
+		): Promise<[BufferSource, [bigint[], bigint[]], BufferSource[]]> {
 			header = header ?? new Uint8Array([]);
 			ph = ph ?? new Uint8Array([]);
 			signer_messages = signer_messages ?? [];
@@ -598,7 +601,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const proof_index = range(L).map(i => i < N ? i : i + 1);
 			const proof_disclosed_indexes = disclosed_indexes.map(i => proof_index[i]);
 			const proof_commitment_indexes = commitment_indexes.map(i => proof_index[i]);
-			const proof_with_add_zkp_info_and_r_key_states = await BlindCoreProofGenInit(
+			const state_and_add_zkp_info_and_dpk_challenges = await BlindCoreProofGenInit(
 				PK,
 				signature,
 				generators,
@@ -611,7 +614,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				proof_commitment_indexes,
 				api_id,
 			);
-			return proof_with_add_zkp_info_and_r_key_states;
+			return state_and_add_zkp_info_and_dpk_challenges;
 		}
 
 		async function BlindProofVerify(
@@ -901,7 +904,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			disclosed_indexes: number[],
 			commitment_indexes: number[],
 			api_id: BufferSource,
-		): Promise<[BufferSource, [bigint[], bigint[]], BufferSource[], BufferSource[]]> {
+		): Promise<[BufferSource, [bigint[], bigint[]], BufferSource[]]> {
 			const [Y_0, Y_1] = await create_generators(2, concat(toUtf8("COM_DIS_"), api_id));
 
 			const signature_result = octets_to_signature(signature);
@@ -1003,36 +1006,98 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const commitments_proof: [PointG1[], bigint[]] = [commitment_init_res.commitments, s_hat];
 			const r_key_hat = r_key_tilde.map((r_key_tilde_i, i) => Fr.sub(r_key_tilde_i, Fr.mul(r_key[i], challenge)));
 
-			const proof = blind_proof_to_octets(
+			const proof = incomplete_blind_proof_to_octets(
 				toU8(serialize([bbs_proof])).length,
 				bbs_proof,
 				N,
 				commitments_proof,
 				r_key_hat,
 				dpkbar,
-				[],
 			);
+			const state = blind_proof_gen_state_to_octets(proof, challenge, r_key);
 			const r_key_challenges = dpkbar.map(dpkbar => serialize([dpkbar, challenge]));
 			const add_zkp_info: [bigint[], bigint[]] = [
 				commitment_indexes.map(i => messages[i]),
 				s,
 			];
-			return [proof, add_zkp_info, r_key_challenges, r_key.map(r => serialize([r]))];
+			return [state, add_zkp_info, r_key_challenges];
+		}
+
+		function blind_proof_gen_state_to_octets(
+			incomplete_proof: BufferSource,
+			challenge: bigint,
+			r_key: bigint[],
+		): BufferSource {
+			return serialize([
+				incomplete_proof,
+				challenge,
+				...r_key,
+			]);
+		}
+
+		function octets_to_blind_proof_gen_state(
+			octs: BufferSource,
+		): [BufferSource, BufferSource, bigint[]] {
+			const octs_u8 = toU8(octs);
+			const K = Number(OS2IP(octs_u8.slice(8, 16)));
+
+			let sidx = octs_u8.byteLength - K * octet_scalar_length;
+			const r_key = range(K).map(i => OS2IP(octs_u8.slice(
+				sidx + i * octet_scalar_length,
+				sidx + (i + 1) * octet_scalar_length,
+			)));
+
+			const challenge_len = octet_scalar_length;
+			sidx = sidx - challenge_len;
+			const challenge = octs_u8.slice(sidx, sidx + challenge_len);
+
+			const incomplete_proof = octs_u8.slice(0, sidx);
+			return [incomplete_proof, challenge, r_key];
+		}
+
+		function incomplete_proof_octets_to_randomized_keys(
+			incomplete_proof: BufferSource,
+		): PointG1[] {
+			const incomplete_proof_u8 = toU8(incomplete_proof);
+			const K = Number(OS2IP(incomplete_proof_u8.slice(8, 16)));
+			const sidx = incomplete_proof.byteLength - K * octet_point_length;
+			return range(K).map(i => octets_to_point_E1(incomplete_proof_u8.slice(
+				sidx + i * octet_point_length,
+				sidx + (i + 1) * octet_point_length,
+			)));
 		}
 
 		async function BlindProofGenFinalize(
-			proof: BufferSource,
-			r_keys: BufferSource[],
+			state: BufferSource,
 			prover_binding_signatures: BufferSource[] | null,
 		): Promise<BufferSource> {
 			prover_binding_signatures = prover_binding_signatures ?? [];
 
-			const adapted_sigs = prover_binding_signatures.map((sig, i) => {
-				const [s, c] = schnorr_parse_signature(sig);
-				return schnorr_encode_signature([Fr.add(s, Fr.mul(OS2IP(r_keys[i]), c)), c]);
+			const [incomplete_proof, challenge, r_key] = octets_to_blind_proof_gen_state(state);
+			const randomized_keys = incomplete_proof_octets_to_randomized_keys(incomplete_proof);
+
+			const adapted_sigs: KeyBindingSignature[] = prover_binding_signatures.map((sig, i) => {
+				switch (sig.byteLength) {
+					case 2 * octet_scalar_length:
+						const [s, c] = schnorr_parse_signature(sig);
+						return ["SCHNORR", schnorr_encode_signature([Fr.add(s, Fr.mul(r_key[i], c)), c])];
+
+					case 2 * octet_point_length:
+						return [
+							"BLS",
+							serialize([
+								octets_to_point_E2(sig).add(
+									G2.hashToCurve(toU8(serialize([randomized_keys[i], challenge])))
+										.multiply(r_key[i])),
+							]),
+						];
+
+					default:
+						throw new Error("Unknown signature length: " + sig.byteLength);
+				}
 			});
 
-			return concat(proof, serialize(adapted_sigs));
+			return concat(incomplete_proof, key_bind_sigs_to_octets(adapted_sigs));
 		}
 
 		async function BlindProofGenKeyProve(
@@ -1041,6 +1106,18 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			challenge: BufferSource,
 		): Promise<BufferSource> {
 			return schnorr_sign_sha256_encode(generator, sk, challenge);
+		}
+
+		async function BlindProofGenKeyProveBls(
+			sk: bigint,
+			challenge: BufferSource,
+		): Promise<BufferSource> {
+			return serialize([
+				G2.hashToCurve(
+					toU8(challenge),
+					{ DST: toUtf8('BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_') },
+				).multiply(sk),
+			]);
 		}
 
 		type SchnorrNizkProof1 = [bigint, bigint];
@@ -1168,7 +1245,18 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			}
 
 			if (!
-				(await Promise.all(r_key_sig.map((sig, i) => schnorr_verify_sha256_encoded(key_bind_generators[i], randomized_keys[i], sig, serialize([randomized_keys[i], challenge]))))).every(valid => valid)
+				(await Promise.all(r_key_sig.map(([typ, sig], i) => {
+					switch (typ) {
+						case "SCHNORR":
+							return schnorr_verify_sha256_encoded(key_bind_generators[i], randomized_keys[i], sig, serialize([randomized_keys[i], challenge]));
+
+						case "BLS":
+							return bls_verify_h2c_sha256_encoded(key_bind_generators[i], randomized_keys[i], sig, serialize([randomized_keys[i], challenge]));
+
+						default:
+							throw new Error("Unknown signature type: " + typ);
+					}
+				}))).every(valid => valid)
 			) {
 				throw new Error("Invalid proof: invalid key binding signature", { cause: { proof } })
 			}
@@ -1192,6 +1280,17 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 		function schnorr_verify_sha256_encoded(generator: PointG1, pk: PointG1, sig: BufferSource, m: BufferSource): Promise<true> {
 			return schnorr_verify_sha256(generator, pk, schnorr_parse_signature(sig), m);
+		}
+
+		function bls_verify_h2c_sha256_encoded(generator: PointG1, pk: PointG1, sig: BufferSource, m: BufferSource): true {
+			const sig_point = octets_to_point_E2(sig);
+			if (Fp12.eql(
+				h(generator, sig_point),
+				h(pk, G2.hashToCurve(toU8(m))),
+			)) {
+				return true;
+			}
+			throw new Error("Invalid BLS signature", { cause: { generator, pk, sig, m } });
 		}
 
 		async function B_calculate(
@@ -1371,15 +1470,14 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			return [[C, K], [s_hat, m_hat, challenge, point_proofs]];
 		}
 
-		function blind_proof_to_octets(
+		function incomplete_blind_proof_to_octets(
 			bbs_proof_len: number,
 			bbs_proof: BufferSource,
 			commitments_count: number,
 			commitments_proof: [PointG1[], bigint[]],
 			r_key_hat: bigint[],
 			randomized_keys: PointG1[],
-			r_key_sigs: BufferSource[],
-		) {
+		): BufferSource {
 			const oct = concat(
 				I2OSP(bbs_proof_len, 8),
 				I2OSP(randomized_keys.length, 8),
@@ -1388,15 +1486,22 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				serialize(commitments_proof.flat()),
 				serialize(r_key_hat),
 				serialize(randomized_keys),
-				serialize(r_key_sigs),
 			);
 			return oct;
+		}
+
+		function key_bind_sigs_to_octets(
+			sigs: KeyBindingSignature[],
+		): BufferSource {
+			return serialize(sigs.flatMap(([typ, sig]) =>
+				[["SCHNORR", "BLS"].indexOf(typ), sig]
+			));
 		}
 
 		function blind_octets_to_proof(proof_octets: BufferSource): [
 			[PointG1, PointG1, PointG1, bigint, bigint, bigint, bigint[], bigint],
 			[PointG1[], bigint[]],
-			[bigint[], PointG1[], BufferSource[]],
+			KeyBindingProof,
 		] {
 			const int_octet_length = 8;
 			const r = Fr.ORDER;
@@ -1466,13 +1571,10 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				eidx = sidx + octet_point_length;
 				return octets_to_point_E1(proof_octets_u8.slice(sidx, eidx));
 			});
-			const r_key_sigs = range(K).map(() => {
-				sidx = eidx;
-				eidx = sidx + 2 * octet_scalar_length;
-				return proof_octets_u8.slice(sidx, eidx);
-			});
+			const [r_key_sigs, deidx] = octets_to_key_bind_sigs(K, proof_octets_u8.slice(eidx));
+			eidx = eidx + deidx;
 
-			const key_binding_proof: [bigint[], PointG1[], BufferSource[]] = [r_key_hat, randomized_keys, r_key_sigs];
+			const key_binding_proof: KeyBindingProof = [r_key_hat, randomized_keys, r_key_sigs];
 
 			if (proof_octets.byteLength !== eidx) {
 				throw new Error(
@@ -1484,6 +1586,39 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			return [bbs_proof, commitments_proof, key_binding_proof];
 		}
 
+		type KeyBindingProof = [bigint[], PointG1[], KeyBindingSignature[]];
+		type KeyBindingSignature = ["SCHNORR" | "BLS", BufferSource];
+
+		function octets_to_key_bind_sigs(
+			K: number,
+			octs: BufferSource,
+		): [KeyBindingSignature[], number] {
+			let tail = toU8(octs);
+			let sigs: ["SCHNORR" | "BLS", BufferSource][] = [];
+			for (let i = 0; i < K; ++i) {
+				const typ = Number(OS2IP(tail.slice(0, 8)));
+				let L;
+				let tag: "SCHNORR" | "BLS" | undefined;
+				switch (typ) {
+					case 0:
+						L = 2 * octet_scalar_length;
+						tag = "SCHNORR";
+						break;
+
+					case 1:
+						L = 2 * octet_point_length;
+						tag = "BLS";
+						break;
+
+					default:
+						throw new Error("Unkown signature type:" + typ);
+				}
+				sigs.push([tag, tail.slice(8, 8 + L)]);
+				tail = tail.slice(8 + L);
+			}
+			return [sigs, octs.byteLength - tail.byteLength];
+		}
+
 		return {
 			api_id,
 			Commit,
@@ -1493,6 +1628,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			BlindProofGenInit,
 			BlindProofGenFinalize,
 			BlindProofGenKeyProve,
+			BlindProofGenKeyProveBls,
 			BlindProofVerify,
 			CommitInit,
 			CommitFinalize,
@@ -1813,7 +1949,7 @@ export type SuiteParams = {
 	hash_to_curve_suite: HashToCurveSuite,
 	hash_to_curve_g1: (msg: BufferSource, DST: BufferSource) => PointG1,
 	expand_len: number,
-	curves: BlsCurvePair,
+	curves: BlsCurvePairWithHashers,
 	P1: PointG1,
 	create_generators_dsts?: CreateGeneratorsDsts,
 	mocked_random_scalars_params?: { SEED: BufferSource, DST: BufferSource },
@@ -1917,16 +2053,20 @@ type BlindBbsSuite = {
 		signer_message_disclosures: DisclosureChoice[] | null,
 		prover_message_disclosures: DisclosureChoice[] | null,
 		secret_prover_blind: bigint | null,
-	): Promise<[BufferSource, [bigint[], bigint[]], BufferSource[], BufferSource[]]>;
+	): Promise<[BufferSource, [bigint[], bigint[]], BufferSource[]]>;
 
 	BlindProofGenFinalize(
-		proof: BufferSource,
-		r_keys: BufferSource[],
+		state: BufferSource,
 		prover_binding_signatures: BufferSource[] | null,
 	): Promise<BufferSource>;
 
 	BlindProofGenKeyProve(
 		generator: PointG1,
+		sk: bigint,
+		challenge: BufferSource,
+	): Promise<BufferSource>;
+
+	BlindProofGenKeyProveBls(
 		sk: bigint,
 		challenge: BufferSource,
 	): Promise<BufferSource>;
