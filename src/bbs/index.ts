@@ -979,7 +979,6 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 			const T1 = Abar.multiply(e_tilde).add(D.multiply(r1_tilde));
 			const T2 = D.multiply(r3_tilde).add(sumprod(Hj, m_tilde)).add(sumprod(Hk, r_key_tilde));
-			const init_res: [PointG1, PointG1, PointG1, PointG1, PointG1, PointG1, bigint] = [Abar, Bbar, D, Y, T1, T2, domain];
 
 			const s_and_s_tilde = await calculate_random_scalars(2 * N);
 			const s = s_and_s_tilde.slice(0, N);
@@ -998,7 +997,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			};
 
 			const challenge = await BlindProofChallengeCalculate(
-				init_res,
+				[Abar, Bbar, D, Y, T1, T2, domain],
 				commitment_init_res,
 				disclosed_messages,
 				disclosed_indexes,
@@ -1006,21 +1005,13 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				api_id,
 			);
 
-			const r3 = Fr.inv(r2);
-			const ehat = Fr.add(e_tilde, Fr.mul(e, challenge));
-			const r1hat = Fr.sub(r1_tilde, Fr.mul(r1, challenge));
-			const r3hat = Fr.sub(r3_tilde, Fr.mul(r3, challenge));
-			const mhatj = m_tilde.map((m_tilde_j, j) => Fr.add(m_tilde_j, Fr.mul(undisclosed_messages[j], challenge)));
-			const bbs_proof = serialize([
-				Abar,
-				Bbar,
-				D,
-				ehat,
-				r1hat,
-				r3hat,
-				...mhatj,
+			const bbs_proof = ProofFinalize(
+				[Abar, Bbar, D, T1, T2, domain],
 				challenge,
-			]);
+				e,
+				init_random_scalars.slice(0, 5 + U),
+				undisclosed_messages,
+			);
 
 			const s_hat = s_tilde.map((s_tilde, i) => Fr.add(s_tilde, Fr.mul(challenge, s[i])));
 			const commitments_proof: [PointG1[], bigint[]] = [commitment_init_res.commitments, s_hat];
