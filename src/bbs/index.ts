@@ -655,7 +655,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			if (proof_msgs_no === 0) {
 				throw new Error("Too few messages", { cause: { proof, undisclosed_msgs_no, proof_msgs_no } });
 			}
-			const total_msgs_no = proof_msgs_no - 1;
+			const total_msgs_no = proof_msgs_no - 1 - K;
 			if (issuer_known_messages_no > total_msgs_no) {
 				throw new Error("Too many issuer-known messages", { cause: { total_msgs_no, issuer_known_messages_no } });
 			}
@@ -930,7 +930,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const [Y_0, Y_1] = await create_generators(2, concat(toUtf8("COM_DIS_"), api_id));
 
 			const signature_result = octets_to_signature(signature);
-			const [A, e] = signature_result;
+			const [_A, e] = signature_result;
 			const L = messages.length;
 			if (!(isStrictlyIncreasing(commitment_indexes) && commitment_indexes.every(i => i >= 0 && i < L))) {
 				throw new Error("Invalid commitment_indexes", { cause: { commitment_indexes } });
@@ -953,32 +953,36 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const K = prover_binding_keys.length;
 
 			const init_random_scalars = await calculate_random_scalars(5 + U + 2 * K);
-			const [r1, r2, e_tilde, r1_tilde, r3_tilde, ...message_randoms] = init_random_scalars;
+			const [r1, r2, _e_tilde, r1_tilde, r3_tilde, ...message_randoms] = init_random_scalars;
 			const m_tilde = message_randoms.slice(0, U);
-			const r_key = message_randoms.slice(U, U + K);
-			const r_key_tilde = message_randoms.slice(U + K);
+			const r_key = message_randoms.slice(U + K);
 
 			const [Q1, ...Hi] = generators;
 			const [Q2, ...blind_msg_generators] = blind_generators;
 			const MsgGenerators = [...Hi, Q2, ...blind_msg_generators];
-			const Hk = keybind_generators;
-			const Hj = undisclosed_indexes.map(j => MsgGenerators[j]);
 
 			const dpk = prover_binding_keys;
 			const dpkbar = dpk.map((dpk, i) => dpk.add(keybind_generators[i].multiply(r_key[i])));
 
-			const domain = await calculate_domain(PK, Q1, [...Hi, ...blind_generators, ...keybind_generators], header, api_id);
-			const B = P1.add(Q1.multiply(domain)).add(sumprod(MsgGenerators, messages)).add(sum(dpk));
+			const [Abar, Bbar_init, D_init, T1_init, T2_init, domain] = await ProofInit(
+				PK,
+				signature_result,
+				[...generators, ...blind_generators, ...keybind_generators],
+				init_random_scalars.slice(0, 5 + U + K),
+				header,
+				[...messages, ...range(K).map(() => 0n)],
+				[...undisclosed_indexes, ...range(K).map(i => i + L)],
+				api_id,
+			);
+			const D_add = sum(dpk).multiply(r2);
+			const D = D_init.add(D_add);
+			const Bbar = Bbar_init.add(D_add.multiply(r1));
 			const Y = P1.add(Q1.multiply(domain))
 				.add(sum(dpkbar))
 				.add(sumprod(disclosed_indexes.map(i => MsgGenerators[i]), disclosed_indexes.map(i => messages[i])))
 				;
-			const D = B.multiply(r2);
-			const Abar = A.multiply(Fr.mul(r1, r2));
-			const Bbar = D.multiply(r1).subtract(Abar.multiply(e));
-
-			const T1 = Abar.multiply(e_tilde).add(D.multiply(r1_tilde));
-			const T2 = D.multiply(r3_tilde).add(sumprod(Hj, m_tilde)).add(sumprod(Hk, r_key_tilde));
+			const T1 = T1_init.add(D_add.multiply(r1_tilde));
+			const T2 = T2_init.add(D_add.multiply(r3_tilde));
 
 			const s_and_s_tilde = await calculate_random_scalars(2 * N);
 			const s = s_and_s_tilde.slice(0, N);
@@ -1009,20 +1013,18 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				[Abar, Bbar, D, T1, T2, domain],
 				challenge,
 				e,
-				init_random_scalars.slice(0, 5 + U),
-				undisclosed_messages,
+				init_random_scalars.slice(0, 5 + U + K),
+				[...undisclosed_messages, ...r_key.map(rk => Fr.neg(rk))],
 			);
 
 			const s_hat = s_tilde.map((s_tilde, i) => Fr.add(s_tilde, Fr.mul(challenge, s[i])));
 			const commitments_proof: [PointG1[], bigint[]] = [commitment_init_res.commitments, s_hat];
-			const r_key_hat = r_key_tilde.map((r_key_tilde_i, i) => Fr.sub(r_key_tilde_i, Fr.mul(r_key[i], challenge)));
 
 			const proof = incomplete_blind_proof_to_octets(
 				toU8(serialize([bbs_proof])).length,
 				bbs_proof,
 				N,
 				commitments_proof,
-				r_key_hat,
 				dpkbar,
 			);
 			const state = blind_proof_gen_state_to_octets(proof, challenge, r_key);
@@ -1171,7 +1173,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const W = octets_to_pubkey(PK);
 
 			const proof_res = blind_octets_to_proof(proof);
-			const [bbs_proof_res, commitments_proof_res, [r_key_hat, randomized_keys, r_key_sig]] = proof_res;
+			const [bbs_proof_res, commitments_proof_res, [randomized_keys, r_key_sig]] = proof_res;
 			const [Abar, Bbar, D, ehat, r1hat, r3hat, hats, cp] = bbs_proof_res;
 			const [commitments, commitments_proof] = commitments_proof_res;
 
@@ -1188,8 +1190,8 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			if (disclosed_messages.length !== R) {
 				throw new Error("Invalid disclosed_messages length", { cause: { R, disclosed_messages } });
 			}
-			if (!(keybind_generators.length === K && r_key_hat.length === K && r_key_sig.length === K)) {
-				throw new Error("Invalid key binding proofs or generators length", { cause: { K, keybind_generators, r_key_hat, randomized_keys, r_key_sig } });
+			if (!(keybind_generators.length === K && r_key_sig.length === K)) {
+				throw new Error("Invalid key binding proofs or generators length", { cause: { K, keybind_generators, randomized_keys, r_key_sig } });
 			}
 			const L = R + U;
 
@@ -1216,7 +1218,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 			const [_Abar, _Bbar, _D, T1, T2_init, domain] = await ProofVerifyInit(
 				PK,
-				[Abar, Bbar, D, ehat, r1hat, r3hat, [...hats, ...range(K).map(() => 0n)], cp],
+				[Abar, Bbar, D, ehat, r1hat, r3hat, hats, cp],
 				[...generators, ...blind_generators, ...keybind_generators],
 				header,
 				disclosed_messages,
@@ -1227,7 +1229,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const Bv = P1.add(Q1.multiply(domain)).add(sumprod(disclosed_indexes.map(i => MsgGenerators[i]), disclosed_messages));
 			const Bv_add = sum(randomized_keys);
 			const Y = Bv.add(Bv_add);
-			const T2 = T2_init.add(Bv_add.multiply(cp)).add(sumprod(keybind_generators, r_key_hat))
+			const T2 = T2_init.add(Bv_add.multiply(cp))
 
 			const C_hat = commitment_indexes.map((idx, i) => {
 				const k = ji.indexOf(idx);
@@ -1490,7 +1492,6 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			bbs_proof: BufferSource,
 			commitments_count: number,
 			commitments_proof: [PointG1[], bigint[]],
-			r_key_hat: bigint[],
 			randomized_keys: PointG1[],
 		): BufferSource {
 			const oct = concat(
@@ -1499,7 +1500,6 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				bbs_proof,
 				I2OSP(commitments_count, 8),
 				serialize(commitments_proof.flat()),
-				serialize(r_key_hat),
 				serialize(randomized_keys),
 			);
 			return oct;
@@ -1572,15 +1572,6 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 			const commitments_proof: [PointG1[], bigint[]] = [C, s];
 
-			const r_key_hat = range(K).map(() => {
-				sidx = eidx;
-				eidx = sidx + octet_scalar_length;
-				const r_key_hat = OS2IP(proof_octets_u8.slice(sidx, eidx));
-				if (r_key_hat <= 0n || r_key_hat >= r) {
-					throw new Error(`Scalar out of range: ${r_key_hat}`, { cause: { r_key_hat, r } });
-				}
-				return r_key_hat;
-			});
 			const randomized_keys = range(K).map(() => {
 				sidx = eidx;
 				eidx = sidx + octet_point_length;
@@ -1589,7 +1580,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const [r_key_sigs, deidx] = octets_to_key_bind_sigs(K, proof_octets_u8.slice(eidx));
 			eidx = eidx + deidx;
 
-			const key_binding_proof: KeyBindingProof = [r_key_hat, randomized_keys, r_key_sigs];
+			const key_binding_proof: KeyBindingProof = [randomized_keys, r_key_sigs];
 
 			if (proof_octets.byteLength !== eidx) {
 				throw new Error(
@@ -1601,7 +1592,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			return [bbs_proof, commitments_proof, key_binding_proof];
 		}
 
-		type KeyBindingProof = [bigint[], PointG1[], KeyBindingSignature[]];
+		type KeyBindingProof = [PointG1[], KeyBindingSignature[]];
 		type KeyBindingSignature = ["SCHNORR" | "BLS", BufferSource];
 
 		function octets_to_key_bind_sigs(
