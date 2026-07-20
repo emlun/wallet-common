@@ -1213,18 +1213,21 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const [Q1, ...Hi] = generators;
 			const [Q2, ...blind_msg_generators] = blind_generators;
 			const MsgGenerators = [...Hi, Q2, ...blind_msg_generators];
-			const Hi_Points = disclosed_indexes.map(i => MsgGenerators[i]);
-			const Hj_Points = undisclosed_indexes.map(j => MsgGenerators[j]);
-			const Hk = keybind_generators;
 
-			const domain = await calculate_domain(PK, Q1, [...Hi, ...blind_generators, ...keybind_generators], header, api_id);
+			const [_Abar, _Bbar, _D, T1, T2_init, domain] = await ProofVerifyInit(
+				PK,
+				[Abar, Bbar, D, ehat, r1hat, r3hat, [...hats, ...range(K).map(() => 0n)], cp],
+				[...generators, ...blind_generators, ...keybind_generators],
+				header,
+				disclosed_messages,
+				disclosed_indexes,
+				api_id,
+			);
 
-			const T1 = Bbar.multiply(cp).add(Abar.multiply(ehat)).add(D.multiply(r1hat));
-			const Bv = P1.add(Q1.multiply(domain)).add(sumprod(Hi_Points, disclosed_messages)).add(sum(randomized_keys));
-			const Y = Bv;
-			const T2 = Bv.multiply(cp).add(D.multiply(r3hat)).add(sumprod(Hj_Points, m_hat)).add(sumprod(Hk, r_key_hat));
-
-			const init_res: [PointG1, PointG1, PointG1, PointG1, PointG1, PointG1, bigint] = [Abar, Bbar, D, Y, T1, T2, domain];
+			const Bv = P1.add(Q1.multiply(domain)).add(sumprod(disclosed_indexes.map(i => MsgGenerators[i]), disclosed_messages));
+			const Bv_add = sum(randomized_keys);
+			const Y = Bv.add(Bv_add);
+			const T2 = T2_init.add(Bv_add.multiply(cp)).add(sumprod(keybind_generators, r_key_hat))
 
 			const C_hat = commitment_indexes.map((idx, i) => {
 				const k = ji.indexOf(idx);
@@ -1239,7 +1242,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			};
 
 			const challenge = await BlindProofChallengeCalculate(
-				init_res,
+				[Abar, Bbar, D, Y, T1, T2, domain],
 				commitment_init_res,
 				disclosed_messages,
 				disclosed_indexes,
