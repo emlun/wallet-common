@@ -81,7 +81,7 @@ describe("Suite:", () => {
 							},
 						},
 					);
-					const { create_blind_generators } = BlindBbs;
+					const { create_keybind_generators } = BlindBbs;
 
 					const committed_messages = [
 						fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
@@ -96,11 +96,10 @@ describe("Suite:", () => {
 						await hash_to_scalar(toUtf8("prover_blind_scalars.1"), toUtf8("Holder-blind BBS test")),
 						await hash_to_scalar(toUtf8("prover_blind_scalars.2"), toUtf8("Holder-blind BBS test")),
 					];
-					const blind_generators = await create_blind_generators(1 + prover_blind_scalars.length + committed_messages.length);
-					const [_Q_2, ...prover_blind_generators] = blind_generators;
+					const keybind_generators = await create_keybind_generators(prover_blind_scalars.length);
 					const committed_points: PointG1[] = (
 						prover_blind_scalars
-							.map((k, i) => prover_blind_generators[i].multiply(k))
+							.map((k, i) => keybind_generators[i].multiply(k))
 					);
 
 					describe("Public API:", async () => {
@@ -139,7 +138,7 @@ describe("Suite:", () => {
 							const commitment_with_proof = await CommitFinalize(
 								state,
 								await Promise.all(prover_blind_scalars.map(
-									async (k, i) => serialize(await CoreCommitProve(k, prover_blind_generators[i], challenge)))),
+									async (k, i) => serialize(await CoreCommitProve(k, keybind_generators[i], challenge)))),
 							);
 							assert.notEqual(secret_prover_blind, null);
 							assert(await CommitVerify(commitment_with_proof));
@@ -150,7 +149,7 @@ describe("Suite:", () => {
 							const commitment_with_proof = await CommitFinalize(
 								state,
 								await Promise.all(prover_blind_scalars.map(
-									async (k, i) => serialize(await CoreCommitProve(k, prover_blind_generators[i], challenge)))),
+									async (k, i) => serialize(await CoreCommitProve(k, keybind_generators[i], challenge)))),
 							);
 							assert.notEqual(secret_prover_blind, null);
 							assert(await CommitVerify(commitment_with_proof));
@@ -158,31 +157,32 @@ describe("Suite:", () => {
 					});
 
 					describe("Core API:", async () => {
-						const { CoreCommitInit, CoreCommitProve, CoreCommitFinalize, CoreCommitVerify } = BlindBbs;
+						const { CoreCommitInit, CoreCommitProve, CoreCommitFinalize, CoreCommitVerify, create_blind_generators } = BlindBbs;
 						const api_id = toUtf8("Holder-blind BBS test");
 
 						const committed_message_scalars = await messages_to_scalars(committed_messages, api_id);
+						const blind_generators = await create_blind_generators(committed_messages.length + 1);
 
 						describe("commitment with no messages", async () => {
 							const generators = blind_generators.slice(0, 1);
-							const [state, , secret_prover_blind] = await CoreCommitInit(generators, [], [], api_id);
+							const [state, , secret_prover_blind] = await CoreCommitInit(generators, [], [], [], api_id);
 							const [commitment, proof] = await CoreCommitFinalize(state, []);
 
 							it("is valid", async () => {
 								const [, point_commitments] = commitment;
 								assert.notEqual(secret_prover_blind, null);
 								assert.deepEqual(point_commitments, []);
-								assert(await CoreCommitVerify(commitment, proof, generators, api_id));
+								assert(await CoreCommitVerify(commitment, proof, generators, [], api_id));
 							});
 
 							it("is not valid if commitment is modified", async () => {
 								const [message_commitment,] = commitment;
 								await asyncAssertThrows(
-									() => CoreCommitVerify([message_commitment.multiply(2n), []], proof, generators, api_id),
+									() => CoreCommitVerify([message_commitment.multiply(2n), []], proof, generators, [], api_id),
 									"Expected modified message commitment to fail verification",
 								);
 								await asyncAssertThrows(
-									() => CoreCommitVerify([message_commitment, [message_commitment]], proof, generators, api_id),
+									() => CoreCommitVerify([message_commitment, [message_commitment]], proof, generators, [], api_id),
 									"Expected modified point commitments to fail verification",
 								);
 							});
@@ -190,19 +190,19 @@ describe("Suite:", () => {
 							it("is not valid if proof is modified", async () => {
 								const [s_tilde, , challenge,] = proof;
 								await asyncAssertThrows(
-									() => CoreCommitVerify(commitment, [s_tilde + 1n, [], challenge, []], generators, api_id),
+									() => CoreCommitVerify(commitment, [s_tilde + 1n, [], challenge, []], generators, [], api_id),
 									"Expected modified s_tilde to fail verification",
 								);
 								await asyncAssertThrows(
-									() => CoreCommitVerify(commitment, [s_tilde, [s_tilde], challenge, []], generators, api_id),
+									() => CoreCommitVerify(commitment, [s_tilde, [s_tilde], challenge, []], generators, [], api_id),
 									"Expected modified m_tilde to fail verification",
 								);
 								await asyncAssertThrows(
-									() => CoreCommitVerify(commitment, [s_tilde, [], challenge + 1n, []], generators, api_id),
+									() => CoreCommitVerify(commitment, [s_tilde, [], challenge + 1n, []], generators, [], api_id),
 									"Expected modified challenge to fail verification",
 								);
 								await asyncAssertThrows(
-									() => CoreCommitVerify(commitment, [s_tilde, [], challenge, [[s_tilde, challenge]]], generators, api_id),
+									() => CoreCommitVerify(commitment, [s_tilde, [], challenge, [[s_tilde, challenge]]], generators, [], api_id),
 									"Expected modified point proofs to fail verification",
 								);
 							});
@@ -210,24 +210,24 @@ describe("Suite:", () => {
 
 						describe("commitment with prover messages", async () => {
 							const generators = blind_generators.slice(0, 1 + committed_messages.length);
-							const [state, , secret_prover_blind] = await CoreCommitInit(generators, committed_message_scalars, [], api_id);
+							const [state, , secret_prover_blind] = await CoreCommitInit(generators, [], committed_message_scalars, [], api_id);
 							const [commitment, proof] = await CoreCommitFinalize(state, []);
 
 							it("is valid", async () => {
 								const [, point_commitments] = commitment;
 								assert.notEqual(secret_prover_blind, null);
 								assert.deepEqual(point_commitments, []);
-								assert(await CoreCommitVerify(commitment, proof, generators, api_id));
+								assert(await CoreCommitVerify(commitment, proof, generators, [], api_id));
 							});
 
 							it("is not valid if commitment is modified", async () => {
 								const [message_commitment,] = commitment;
 								await asyncAssertThrows(
-									() => CoreCommitVerify([message_commitment.multiply(2n), []], proof, generators, api_id),
+									() => CoreCommitVerify([message_commitment.multiply(2n), []], proof, generators, [], api_id),
 									"Expected modified message commitment to fail verification",
 								);
 								await asyncAssertThrows(
-									() => CoreCommitVerify([message_commitment, [message_commitment]], proof, generators, api_id),
+									() => CoreCommitVerify([message_commitment, [message_commitment]], proof, generators, [], api_id),
 									"Expected modified point commitments to fail verification",
 								);
 							});
@@ -235,29 +235,30 @@ describe("Suite:", () => {
 							it("is not valid if proof is modified", async () => {
 								const [s_tilde, m_tilde, challenge,] = proof;
 								await asyncAssertThrows(
-									() => CoreCommitVerify(commitment, [s_tilde + 1n, m_tilde, challenge, []], generators, api_id),
+									() => CoreCommitVerify(commitment, [s_tilde + 1n, m_tilde, challenge, []], generators, [], api_id),
 									"Expected modified s_tilde to fail verification",
 								);
 								await Promise.all(m_tilde.map((_, i) =>
 									asyncAssertThrows(
-										() => CoreCommitVerify(commitment, [s_tilde, m_tilde.map((m, ii) => m + (ii === i ? 1n : 0n)), challenge, []], generators, api_id),
+										() => CoreCommitVerify(commitment, [s_tilde, m_tilde.map((m, ii) => m + (ii === i ? 1n : 0n)), challenge, []], generators, [], api_id),
 										"Expected modified m_tilde to fail verification",
 									)));
 								await asyncAssertThrows(
-									() => CoreCommitVerify(commitment, [s_tilde, m_tilde, challenge + 1n, []], generators, api_id),
+									() => CoreCommitVerify(commitment, [s_tilde, m_tilde, challenge + 1n, []], generators, [], api_id),
 									"Expected modified challenge to fail verification",
 								);
 								await asyncAssertThrows(
-									() => CoreCommitVerify(commitment, [s_tilde, m_tilde, challenge, [[s_tilde, challenge]]], generators, api_id),
+									() => CoreCommitVerify(commitment, [s_tilde, m_tilde, challenge, [[s_tilde, challenge]]], generators, [], api_id),
 									"Expected modified point proofs to fail verification",
 								);
 							});
 						});
 
 						describe("commitment with prover-blind messages", async () => {
-							const generators = blind_generators.slice(0, 1 + committed_points.length);
+							const generators = blind_generators.slice(0, 1);
 							const [state, challenge, secret_prover_blind] = await CoreCommitInit(
 								generators,
+								keybind_generators,
 								[],
 								committed_points,
 								api_id,
@@ -265,25 +266,25 @@ describe("Suite:", () => {
 							const [commitment, proof] = await CoreCommitFinalize(
 								state,
 								await Promise.all(prover_blind_scalars.map(
-									async (k, i) => await CoreCommitProve(k, prover_blind_generators[i], challenge))),
+									async (k, i) => await CoreCommitProve(k, keybind_generators[i], challenge))),
 							);
 
 							it("is valid", async () => {
 								const [, point_commitments] = commitment;
 								assert.notEqual(secret_prover_blind, null);
 								assert.deepEqual(point_commitments, committed_points);
-								assert(await CoreCommitVerify(commitment, proof, generators, api_id));
+								assert(await CoreCommitVerify(commitment, proof, generators, keybind_generators, api_id));
 							});
 
 							it("is not valid if commitment is modified", async () => {
 								const [message_commitment, point_commitments] = commitment;
 								await asyncAssertThrows(
-									() => CoreCommitVerify([message_commitment.multiply(2n), point_commitments], proof, generators, api_id),
+									() => CoreCommitVerify([message_commitment.multiply(2n), point_commitments], proof, generators, keybind_generators, api_id),
 									"Expected modified message commitment to fail verification",
 								);
 								await Promise.all(point_commitments.map((_, i) =>
 									asyncAssertThrows(
-										() => CoreCommitVerify([message_commitment, point_commitments.map((p, ii) => ii === i ? p.multiply(2n) : p)], proof, generators, api_id),
+										() => CoreCommitVerify([message_commitment, point_commitments.map((p, ii) => ii === i ? p.multiply(2n) : p)], proof, generators, keybind_generators, api_id),
 										"Expected modified point commitments to fail verification",
 									)
 								));;
@@ -292,15 +293,15 @@ describe("Suite:", () => {
 							it("is not valid if proof is modified", async () => {
 								const [s_tilde, m_tilde, challenge, point_proofs] = proof;
 								await asyncAssertThrows(
-									() => CoreCommitVerify(commitment, [s_tilde + 1n, [], challenge, point_proofs], generators, api_id),
+									() => CoreCommitVerify(commitment, [s_tilde + 1n, [], challenge, point_proofs], generators, keybind_generators, api_id),
 									"Expected modified s_tilde to fail verification",
 								);
 								await asyncAssertThrows(
-									() => CoreCommitVerify(commitment, [s_tilde, [s_tilde], challenge, point_proofs], generators, api_id),
+									() => CoreCommitVerify(commitment, [s_tilde, [s_tilde], challenge, point_proofs], generators, keybind_generators, api_id),
 									"Expected modified m_tilde to fail verification",
 								);
 								await asyncAssertThrows(
-									() => CoreCommitVerify(commitment, [s_tilde, [], challenge + 1n, point_proofs], generators, api_id),
+									() => CoreCommitVerify(commitment, [s_tilde, [], challenge + 1n, point_proofs], generators, keybind_generators, api_id),
 									"Expected modified challenge to fail verification",
 								);
 								await Promise.all(point_proofs.map(async (_, i) => {
@@ -314,6 +315,7 @@ describe("Suite:", () => {
 												point_proofs.map<[bigint, bigint]>(([k_hat, c], ii) => [ii === i ? k_hat + 1n : k_hat, c]),
 											],
 											generators,
+											keybind_generators,
 											api_id,
 										),
 										"Expected modified point proofs to fail verification",
@@ -328,6 +330,7 @@ describe("Suite:", () => {
 												point_proofs.map<[bigint, bigint]>(([k_hat, c], ii) => [k_hat, ii === i ? c + 1n : c]),
 											],
 											generators,
+											keybind_generators,
 											api_id,
 										),
 										"Expected modified point proofs to fail verification",
@@ -337,9 +340,9 @@ describe("Suite:", () => {
 						});
 
 						describe("commitment with prover messages and prover-blind messages", async () => {
-							const generators = blind_generators;
 							const [state, challenge, secret_prover_blind] = await CoreCommitInit(
-								generators,
+								blind_generators,
+								keybind_generators,
 								committed_message_scalars,
 								committed_points,
 								api_id,
@@ -347,25 +350,25 @@ describe("Suite:", () => {
 							const [commitment, proof] = await CoreCommitFinalize(
 								state,
 								await Promise.all(prover_blind_scalars.map(
-									async (k, i) => await CoreCommitProve(k, prover_blind_generators[i], challenge))),
+									async (k, i) => await CoreCommitProve(k, keybind_generators[i], challenge))),
 							);
 
 							it("is valid", async () => {
 								const [, point_commitments] = commitment;
 								assert.notEqual(secret_prover_blind, null);
 								assert.deepEqual(point_commitments, committed_points);
-								assert(await CoreCommitVerify(commitment, proof, generators, api_id));
+								assert(await CoreCommitVerify(commitment, proof, blind_generators, keybind_generators, api_id));
 							});
 
 							it("is not valid if commitment is modified", async () => {
 								const [message_commitment, point_commitments] = commitment;
 								await asyncAssertThrows(
-									() => CoreCommitVerify([message_commitment.multiply(2n), point_commitments], proof, generators, api_id),
+									() => CoreCommitVerify([message_commitment.multiply(2n), point_commitments], proof, blind_generators, keybind_generators, api_id),
 									"Expected modified message commitment to fail verification",
 								);
 								await Promise.all(point_commitments.map((_, i) =>
 									asyncAssertThrows(
-										() => CoreCommitVerify([message_commitment, point_commitments.map((p, ii) => ii === i ? p.multiply(2n) : p)], proof, generators, api_id),
+										() => CoreCommitVerify([message_commitment, point_commitments.map((p, ii) => ii === i ? p.multiply(2n) : p)], proof, blind_generators, keybind_generators, api_id),
 										"Expected modified point commitments to fail verification",
 									)
 								));;
@@ -374,15 +377,15 @@ describe("Suite:", () => {
 							it("is not valid if proof is modified", async () => {
 								const [s_tilde, m_tilde, challenge, point_proofs] = proof;
 								await asyncAssertThrows(
-									() => CoreCommitVerify(commitment, [s_tilde + 1n, [], challenge, point_proofs], generators, api_id),
+									() => CoreCommitVerify(commitment, [s_tilde + 1n, [], challenge, point_proofs], blind_generators, keybind_generators, api_id),
 									"Expected modified s_tilde to fail verification",
 								);
 								await asyncAssertThrows(
-									() => CoreCommitVerify(commitment, [s_tilde, [s_tilde], challenge, point_proofs], generators, api_id),
+									() => CoreCommitVerify(commitment, [s_tilde, [s_tilde], challenge, point_proofs], blind_generators, keybind_generators, api_id),
 									"Expected modified m_tilde to fail verification",
 								);
 								await asyncAssertThrows(
-									() => CoreCommitVerify(commitment, [s_tilde, [], challenge + 1n, point_proofs], generators, api_id),
+									() => CoreCommitVerify(commitment, [s_tilde, [], challenge + 1n, point_proofs], blind_generators, keybind_generators, api_id),
 									"Expected modified challenge to fail verification",
 								);
 								await Promise.all(point_proofs.map(async (_, i) => {
@@ -395,7 +398,8 @@ describe("Suite:", () => {
 												challenge,
 												point_proofs.map<[bigint, bigint]>(([k_hat, c], ii) => [ii === i ? k_hat + 1n : k_hat, c]),
 											],
-											generators,
+											blind_generators,
+											keybind_generators,
 											api_id,
 										),
 										"Expected modified point proofs to fail verification",
@@ -409,7 +413,8 @@ describe("Suite:", () => {
 												challenge,
 												point_proofs.map<[bigint, bigint]>(([k_hat, c], ii) => [k_hat, ii === i ? c + 1n : c]),
 											],
-											generators,
+											blind_generators,
+											keybind_generators,
 											api_id,
 										),
 										"Expected modified point proofs to fail verification",
@@ -435,7 +440,7 @@ describe("Suite:", () => {
 							},
 						},
 					);
-					const { create_blind_generators } = BlindBbs;
+					const { create_keybind_generators } = BlindBbs;
 
 					const committed_messages = [
 						fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
@@ -450,11 +455,10 @@ describe("Suite:", () => {
 						await hash_to_scalar(toUtf8("prover_blind_scalars.1"), toUtf8("Holder-blind BBS test")),
 						await hash_to_scalar(toUtf8("prover_blind_scalars.2"), toUtf8("Holder-blind BBS test")),
 					];
-					const blind_generators = await create_blind_generators(1 + prover_blind_scalars.length + committed_messages.length);
-					const [_Q_2, ...prover_blind_generators] = blind_generators;
+					const keybind_generators = await create_keybind_generators(prover_blind_scalars.length);
 					const committed_points: PointG1[] = (
 						prover_blind_scalars
-							.map((k, i) => prover_blind_generators[i].multiply(k))
+							.map((k, i) => keybind_generators[i].multiply(k))
 					);
 
 					// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-proof-test-vectors
@@ -521,7 +525,7 @@ describe("Suite:", () => {
 							const commitment_with_proof = await CommitFinalize(
 								state,
 								await Promise.all(prover_blind_scalars.map(
-									async (k, i) => serialize(await CoreCommitProve(k, prover_blind_generators[i], challenge)))),
+									async (k, i) => serialize(await CoreCommitProve(k, keybind_generators[i], challenge)))),
 							);
 							const signature = await BlindSign(SK, PK, commitment_with_proof, header, null);
 
@@ -554,7 +558,7 @@ describe("Suite:", () => {
 							const commitment_with_proof = await CommitFinalize(
 								state,
 								await Promise.all(prover_blind_scalars.map(
-									async (k, i) => serialize(await CoreCommitProve(k, prover_blind_generators[i], challenge)))),
+									async (k, i) => serialize(await CoreCommitProve(k, keybind_generators[i], challenge)))),
 							);
 							const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
 							assert(await VerifyBlindSign(
@@ -573,7 +577,7 @@ describe("Suite:", () => {
 							const commitment_with_proof = await CommitFinalize(
 								state,
 								await Promise.all(prover_blind_scalars.map(
-									async (k, i) => serialize(await CoreCommitProve(k, prover_blind_generators[i], challenge)))),
+									async (k, i) => serialize(await CoreCommitProve(k, keybind_generators[i], challenge)))),
 							);
 							const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
 							assert(await VerifyBlindSign(
@@ -604,7 +608,7 @@ describe("Suite:", () => {
 							},
 						},
 					);
-					const { create_blind_generators } = BlindBbs;
+					const { create_keybind_generators } = BlindBbs;
 
 					const committed_messages = [
 						fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
@@ -619,11 +623,10 @@ describe("Suite:", () => {
 						await hash_to_scalar(toUtf8("prover_blind_scalars.1"), toUtf8("Holder-blind BBS test")),
 						await hash_to_scalar(toUtf8("prover_blind_scalars.2"), toUtf8("Holder-blind BBS test")),
 					];
-					const blind_generators = await create_blind_generators(1 + prover_blind_scalars.length + committed_messages.length);
-					const [_Q_2, ...prover_blind_generators] = blind_generators;
+					const keybind_generators = await create_keybind_generators(prover_blind_scalars.length);
 					const committed_points: PointG1[] = (
 						prover_blind_scalars
-							.map((k, i) => prover_blind_generators[i].multiply(k))
+							.map((k, i) => keybind_generators[i].multiply(k))
 					);
 
 					// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-proof-test-vectors
@@ -777,7 +780,7 @@ describe("Suite:", () => {
 							const commitment_with_proof = await CommitFinalize(
 								state,
 								await Promise.all(prover_blind_scalars.map(
-									async (k, i) => serialize(await CoreCommitProve(k, prover_blind_generators[i], challenge)))),
+									async (k, i) => serialize(await CoreCommitProve(k, keybind_generators[i], challenge)))),
 							);
 							const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
 							const options: DisclosureChoice[] = ["DISCLOSE", "COMMIT", "HIDE"];
@@ -792,7 +795,7 @@ describe("Suite:", () => {
 							const proof = await BlindProofGenFinalize(
 								proof_state,
 								await Promise.all(prover_blind_scalars.map((dsk, i) =>
-									BlindProofGenKeyProve(prover_blind_generators[i], dsk, dpk_challenges[i])
+									BlindProofGenKeyProve(keybind_generators[i], dsk, dpk_challenges[i])
 								)),
 							);
 							assert(await BlindProofVerify(
@@ -814,7 +817,7 @@ describe("Suite:", () => {
 							const commitment_with_proof = await CommitFinalize(
 								state,
 								await Promise.all(prover_blind_scalars.map(
-									async (k, i) => serialize(await CoreCommitProve(k, prover_blind_generators[i], challenge)))),
+									async (k, i) => serialize(await CoreCommitProve(k, keybind_generators[i], challenge)))),
 							);
 							const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
 							const options: DisclosureChoice[] = ["DISCLOSE", "COMMIT", "HIDE"];
@@ -831,7 +834,7 @@ describe("Suite:", () => {
 								await Promise.all(prover_blind_scalars.map((dsk, i) =>
 									i === 1
 									? BlindProofGenKeyProveBls(dsk, dpk_challenges[i])
-									: BlindProofGenKeyProve(prover_blind_generators[i], dsk, dpk_challenges[i])
+									: BlindProofGenKeyProve(keybind_generators[i], dsk, dpk_challenges[i])
 								)),
 							);
 							assert(await BlindProofVerify(

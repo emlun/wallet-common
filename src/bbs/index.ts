@@ -388,6 +388,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 	function BlindBbs(): BlindBbsSuite {
 		const api_id = toUtf8(suite.id + "BLIND_H2G_HM2S_");
 		const blind_api_id = concat(toUtf8("BLIND_"), api_id);
+		const keybind_api_id = concat(toUtf8("KEYBIND_"), api_id);
 
 		function create_unblind_generators(count: number): Promise<PointG1[]> {
 			return create_generators(count, api_id);
@@ -395,6 +396,10 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 		function create_blind_generators(count: number): Promise<PointG1[]> {
 			return create_generators(count, blind_api_id);
+		}
+
+		function create_keybind_generators(count: number): Promise<PointG1[]> {
+			return create_generators(count, keybind_api_id);
 		}
 
 		async function deserialize_and_validate_commit(
@@ -406,13 +411,12 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			}
 
 			const [commitment, commitment_proof] = octets_to_commitment_with_proof(toU8(commitment_with_proof));
-			const [, message_proofs,, point_proofs] = commitment_proof;
-			const blind_generators = await create_blind_generators(1 + point_proofs.length + message_proofs.length);
-			const [Q2, ...all_blind_generators] = blind_generators;
-			const key_bind_generators = all_blind_generators.slice(0, point_proofs.length);
-			const blind_msg_generators = all_blind_generators.slice(point_proofs.length);
-			await CoreCommitVerify(commitment, commitment_proof, blind_generators, api_id);
-			return [...commitment, Q2, key_bind_generators, blind_msg_generators];
+			const [, message_proofs, , point_proofs] = commitment_proof;
+			const blind_generators = await create_blind_generators(1 + message_proofs.length);
+			const keybind_generators = await create_keybind_generators(point_proofs.length);
+			const [Q2, ...blind_msg_generators] = blind_generators;
+			await CoreCommitVerify(commitment, commitment_proof, blind_generators, keybind_generators, api_id);
+			return [...commitment, Q2, blind_msg_generators, keybind_generators];
 		}
 
 		async function Commit(
@@ -432,9 +436,11 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			committed_points = committed_points ?? [];
 
 			const committed_message_scalars = await messages_to_scalars(committed_messages, api_id);
-			const blind_generators = await create_blind_generators(1 + committed_points.length + committed_message_scalars.length);
+			const blind_generators = await create_blind_generators(1 + committed_message_scalars.length);
+			const keybind_generators = await create_keybind_generators(committed_points.length);
 			const [state, challenge, secret_prover_blind] = await CoreCommitInit(
 				blind_generators,
+				keybind_generators,
 				committed_message_scalars,
 				committed_points.map(octets_to_point_E1),
 				api_id,
@@ -482,10 +488,10 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 			const generators = await create_unblind_generators(L + 1);
 			// const [Q_1, ...H_Points] = generators;
-			const [commitment, committed_points, Q2, key_bind_generators, blind_msg_generators] = await deserialize_and_validate_commit(commitment_with_proof, api_id);
+			const [commitment, committed_points, Q2, blind_msg_generators, keybind_generators] = await deserialize_and_validate_commit(commitment_with_proof, api_id);
 			// const [Q_2, ...J] = blind_generators;
 			const message_scalars = await messages_to_scalars(messages, api_id);
-			const res = await B_calculate(PK, generators, [Q2, ...key_bind_generators, ...blind_msg_generators], commitment.add(sum(committed_points)), message_scalars, header, api_id);
+			const res = await B_calculate(PK, generators, [Q2, ...blind_msg_generators,  ...keybind_generators], commitment.add(sum(committed_points)), message_scalars, header, api_id);
 			const [B] = res;
 			const blind_sig = FinalizeBlindSign(SK, B, committed_points, api_id);
 			return blind_sig;
@@ -511,7 +517,8 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			}
 
 			const generators = await create_unblind_generators(issuer_known_messages_no + 1);
-			const blind_generators = await create_blind_generators(committed_points.length + L - issuer_known_messages_no + 1);
+			const blind_generators = await create_blind_generators(L - issuer_known_messages_no + 1);
+			const keybind_generators = await create_keybind_generators(committed_points.length);
 			const message_scalars = await messages_to_scalars(messages, api_id);
 			const signer_scalars = message_scalars.slice(0, issuer_known_messages_no);
 			const committed_message_scalars = message_scalars.slice(issuer_known_messages_no);
@@ -520,6 +527,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				signature,
 				generators,
 				blind_generators,
+				keybind_generators,
 				header,
 				[...signer_scalars, secret_prover_blind, ...committed_message_scalars],
 				committed_points.map(octets_to_point_E1),
@@ -593,7 +601,8 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const commitment_indexes = range(L).filter(i => message_disclosures[i] === "COMMIT");
 
 			const generators = await create_unblind_generators(N + 1);
-			const blind_generators = await create_blind_generators(L - N + 1 + K);
+			const blind_generators = await create_blind_generators(L - N + 1);
+			const keybind_generators = await create_keybind_generators(K);
 			const message_scalars = await messages_to_scalars(messages, api_id);
 			const signer_scalars = message_scalars.slice(0, N);
 			const committed_message_scalars = message_scalars.slice(N);
@@ -606,6 +615,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				signature,
 				generators,
 				blind_generators,
+				keybind_generators,
 				header,
 				ph,
 				proof_scalars,
@@ -662,13 +672,15 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const proof_commitment_indexes = commitment_indexes.map(i => proof_index[i]);
 
 			const generators = await create_unblind_generators(issuer_known_messages_no + 1);
-			const blind_generators = await create_blind_generators(total_msgs_no - issuer_known_messages_no + 1 + K);
+			const blind_generators = await create_blind_generators(total_msgs_no - issuer_known_messages_no + 1);
+			const keybind_generators = await create_keybind_generators(K);
 			const message_scalars = await messages_to_scalars(disclosed_messages, api_id);
 			const result = await BlindCoreProofVerify(
 				PK,
 				proof_u8,
 				generators,
 				blind_generators,
+				keybind_generators,
 				header,
 				ph,
 				message_scalars,
@@ -724,24 +736,26 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		}
 
 		async function CoreCommitInit(
-			// First N+1 are Q2 and prover-blind generators, last M are prover-known generators
 			blind_generators: PointG1[],
+			keybind_generators: PointG1[],
 			committed_scalars: bigint[],
 			committed_points: PointG1[],
 			api_id: BufferSource,
 		): Promise<[CommitState, BufferSource, bigint]> {
 			const M = committed_scalars.length;
-			const N = committed_points.length;
-			if (blind_generators.length !== M + N + 1) {
-				throw new Error("Invalid number of generators, messages, or points", { cause: { blind_generators, committed_scalars, committed_points } });
+			const K = committed_points.length;
+			if (blind_generators.length !== M + 1) {
+				throw new Error("Invalid number of blind message generators or messages", { cause: { blind_generators, committed_scalars } });
 			}
-			const [Q2, ...J] = blind_generators;
+			if (keybind_generators.length !== K) {
+				throw new Error("Invalid number of key binding generators or points", { cause: { keybind_generators, committed_points } });
+			}
 			const msg = committed_scalars;
 
 			const [secret_prover_blind, s_tilde, ...m_tilde] = await calculate_random_scalars(M + 2);
-			const C = sumprod([Q2, ...J.slice(N)], [secret_prover_blind, ...msg]);
-			const Cbar = sumprod([Q2, ...J.slice(N)], [s_tilde, ...m_tilde]);
-			const challenge = await calculate_blind_challenge(C, Cbar, blind_generators, committed_points, api_id);
+			const C = sumprod(blind_generators, [secret_prover_blind, ...msg]);
+			const Cbar = sumprod(blind_generators, [s_tilde, ...m_tilde]);
+			const challenge = await calculate_blind_challenge(C, Cbar, [...blind_generators, ...keybind_generators], committed_points, api_id);
 			const s_hat = Fr.add(s_tilde, Fr.mul(secret_prover_blind, challenge));
 			const m_hat = m_tilde.map((m_tilde_i, i) => (Fr.add(m_tilde_i, Fr.mul(msg[i], challenge))));
 
@@ -790,27 +804,30 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			[commitment, committed_points]: [PointG1, PointG1[]],
 			commitment_proof: [bigint, bigint[], bigint, [bigint, bigint][]],
 			blind_generators: PointG1[],
+			keybind_generators: PointG1[],
 			api_id: BufferSource,
 		): Promise<true> {
 			const [s_hat, commitments, cp, committed_point_proofs] = commitment_proof;
 			const M = commitments.length;
-			const N = committed_point_proofs.length;
+			const K = committed_point_proofs.length;
 			const m_hat = commitments;
-			if (blind_generators.length !== M + N + 1) {
-				throw new Error("Invalid number of generators, commitments or point proofs", {
-					cause: {
-						blind_generators, commitments, committed_point_proofs
-					}
+			if (blind_generators.length !== M + 1) {
+				throw new Error("Invalid number of message generators or commitments", {
+					cause: { blind_generators, commitments }
+				});
+			}
+			if (keybind_generators.length !== K) {
+				throw new Error("Invalid number of key binding generators or point proofs", {
+					cause: { keybind_generators, committed_point_proofs }
 				});
 			}
 
-			const [Q2, ...J] = blind_generators;
-			const Cbar = sumprod([Q2, ...J.slice(N), commitment], [s_hat, ...m_hat, Fr.neg(cp)]);
-			const cv = await calculate_blind_challenge(commitment, Cbar, blind_generators, committed_points, api_id);
+			const Cbar = sumprod([...blind_generators, commitment], [s_hat, ...m_hat, Fr.neg(cp)]);
+			const cv = await calculate_blind_challenge(commitment, Cbar, [...blind_generators, ...keybind_generators], committed_points, api_id);
 			if (cv === cp) {
 				if (
 					(await Promise.all(committed_point_proofs.map(async ([k_hat, c], j) => {
-						const Jj = J[j];
+						const Jj = keybind_generators[j];
 						const K = committed_points[j];
 						const R_hat = Jj.multiply(k_hat).add(K.multiply(Fr.neg(c)));
 						const cv = await hash_to_scalar(serialize([R_hat, cp]), new Uint8Array([]));
@@ -863,6 +880,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			signature: BufferSource,
 			generators: PointG1[],
 			blind_generators: PointG1[],
+			keybind_generators: PointG1[],
 			header: BufferSource,
 			messages: bigint[],
 			committed_points: PointG1[],
@@ -871,17 +889,20 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const [A, e] = octets_to_signature(signature);
 			const W = octets_to_pubkey(PK);
 			const M = messages.length;
-			const N = committed_points.length;
-			if (generators.length + blind_generators.length !== M + N + 1) {
-				throw new Error("Messages, points and generators not of matching lengths", { cause: { messages, committed_points, generators, blind_generators } });
+			const K = committed_points.length;
+			if (generators.length + blind_generators.length !== M + 1) {
+				throw new Error("Messages and generators not of matching lengths", { cause: { messages, generators, blind_generators } });
+			}
+			if (keybind_generators.length !== K) {
+				throw new Error("Points and key binding generators not of matching lengths", { cause: { committed_points, keybind_generators } });
 			}
 			const [Q_1, ...H_Points] = generators;
 			const [Q_2, ...J_Points] = blind_generators;
 
-			const domain = await calculate_domain(PK, Q_1, [...H_Points, ...blind_generators], header, api_id);
+			const domain = await calculate_domain(PK, Q_1, [...H_Points, ...blind_generators, ...keybind_generators], header, api_id);
 			const B = P1
 				.add(Q_1.multiply(domain))
-				.add(sumprod([...H_Points, Q_2, ...J_Points.slice(N)], messages))
+				.add(sumprod([...H_Points, Q_2, ...J_Points], messages))
 				.add(sum(committed_points));
 			if (!Fp12.eql(
 				Fp12.mul(h(A, W.add(G2.Point.BASE.multiply(e))), h(B, G2.Point.BASE.negate())),
@@ -897,6 +918,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			signature: BufferSource,
 			generators: PointG1[],
 			blind_generators: PointG1[],
+			keybind_generators: PointG1[],
 			header: BufferSource,
 			ph: BufferSource,
 			messages: bigint[],
@@ -937,17 +959,15 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const r_key_tilde = message_randoms.slice(U + K);
 
 			const [Q1, ...Hi] = generators;
-			const [Q2, ...all_blind_generators] = blind_generators;
-			const key_bind_generators = all_blind_generators.slice(0, prover_binding_keys.length);
-			const blind_msg_generators = all_blind_generators.slice(prover_binding_keys.length);
+			const [Q2, ...blind_msg_generators] = blind_generators;
 			const MsgGenerators = [...Hi, Q2, ...blind_msg_generators];
-			const Hk = key_bind_generators;
+			const Hk = keybind_generators;
 			const Hj = undisclosed_indexes.map(j => MsgGenerators[j]);
 
 			const dpk = prover_binding_keys;
-			const dpkbar = dpk.map((dpk, i) => dpk.add(key_bind_generators[i].multiply(r_key[i])));
+			const dpkbar = dpk.map((dpk, i) => dpk.add(keybind_generators[i].multiply(r_key[i])));
 
-			const domain = await calculate_domain(PK, Q1, [...Hi, ...blind_generators], header, api_id);
+			const domain = await calculate_domain(PK, Q1, [...Hi, ...blind_generators, ...keybind_generators], header, api_id);
 			const B = P1.add(Q1.multiply(domain)).add(sumprod(MsgGenerators, messages)).add(sum(dpk));
 			const Y = P1.add(Q1.multiply(domain))
 				.add(sum(dpkbar))
@@ -1147,6 +1167,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			proof: BufferSource,
 			generators: PointG1[],
 			blind_generators: PointG1[],
+			keybind_generators: PointG1[],
 			header: BufferSource,
 			ph: BufferSource,
 			disclosed_messages: bigint[],
@@ -1176,6 +1197,9 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			if (disclosed_messages.length !== R) {
 				throw new Error("Invalid disclosed_messages length", { cause: { R, disclosed_messages } });
 			}
+			if (!(keybind_generators.length === K && r_key_hat.length === K && r_key_sig.length === K)) {
+				throw new Error("Invalid key binding proofs or generators length", { cause: { K, keybind_generators, r_key_hat, randomized_keys, r_key_sig } });
+			}
 			const L = R + U;
 
 			if (!(isStrictlyIncreasing(commitment_indexes) && commitment_indexes.every(i => i >= 0 && i < L))) {
@@ -1196,16 +1220,13 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const s_hat = commitments_proof;
 
 			const [Q1, ...Hi] = generators;
-			const [Q2, ...all_blind_generators] = blind_generators;
-			const key_bind_generators = all_blind_generators.slice(0, K);
-			const blind_msg_generators = all_blind_generators.slice(K);
+			const [Q2, ...blind_msg_generators] = blind_generators;
 			const MsgGenerators = [...Hi, Q2, ...blind_msg_generators];
-			const H_Points = MsgGenerators;
 			const Hi_Points = disclosed_indexes.map(i => MsgGenerators[i]);
 			const Hj_Points = undisclosed_indexes.map(j => MsgGenerators[j]);
-			const Hk = key_bind_generators;
+			const Hk = keybind_generators;
 
-			const domain = await calculate_domain(PK, Q1, [...Hi, ...blind_generators], header, api_id);
+			const domain = await calculate_domain(PK, Q1, [...Hi, ...blind_generators, ...keybind_generators], header, api_id);
 
 			const T1 = Bbar.multiply(cp).add(Abar.multiply(ehat)).add(D.multiply(r1hat));
 			const Bv = P1.add(Q1.multiply(domain)).add(sumprod(Hi_Points, disclosed_messages)).add(sum(randomized_keys));
@@ -1248,10 +1269,10 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				(await Promise.all(r_key_sig.map(([typ, sig], i) => {
 					switch (typ) {
 						case "SCHNORR":
-							return schnorr_verify_sha256_encoded(key_bind_generators[i], randomized_keys[i], sig, serialize([randomized_keys[i], challenge]));
+							return schnorr_verify_sha256_encoded(keybind_generators[i], randomized_keys[i], sig, serialize([randomized_keys[i], challenge]));
 
 						case "BLS":
-							return bls_verify_h2c_sha256_encoded(key_bind_generators[i], randomized_keys[i], sig, serialize([randomized_keys[i], challenge]));
+							return bls_verify_h2c_sha256_encoded(keybind_generators[i], randomized_keys[i], sig, serialize([randomized_keys[i], challenge]));
 
 						default:
 							throw new Error("Unknown signature type: " + typ);
@@ -1639,6 +1660,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			CoreCommitVerify,
 			create_unblind_generators,
 			create_blind_generators,
+			create_keybind_generators,
 		};
 	}
 
@@ -1989,6 +2011,7 @@ type BlindBbsSuite = {
 
 	CoreCommitInit(
 		blind_generators: PointG1[],
+		keybind_generators: PointG1[],
 		committed_scalars: bigint[],
 		committed_points: PointG1[],
 		api_id: BufferSource,
@@ -2009,6 +2032,7 @@ type BlindBbsSuite = {
 		[commitment, committed_points]: [PointG1, PointG1[]],
 		commitment_proof: [bigint, bigint[], bigint, [bigint, bigint][]],
 		blind_generators: PointG1[],
+		keybind_generators: PointG1[],
 		api_id: BufferSource,
 	): Promise<true>;
 
@@ -2083,6 +2107,7 @@ type BlindBbsSuite = {
 
 	create_unblind_generators(count: number): Promise<PointG1[]>,
 	create_blind_generators(count: number): Promise<PointG1[]>,
+	create_keybind_generators(count: number): Promise<PointG1[]>,
 }
 
 type CipherSuite = {
