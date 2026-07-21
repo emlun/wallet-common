@@ -436,7 +436,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			committed_points = committed_points ?? [];
 
 			const committed_message_scalars = await messages_to_scalars(committed_messages, api_id);
-			const blind_generators = await create_blind_generators(1 + committed_message_scalars.length);
+			const blind_generators = await create_blind_generators(committed_message_scalars.length + 1);
 			const keybind_generators = await create_keybind_generators(committed_points.length);
 			const [state, challenge, secret_prover_blind] = await CoreCommitInit(
 				blind_generators,
@@ -522,6 +522,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const message_scalars = await messages_to_scalars(messages, api_id);
 			const signer_scalars = message_scalars.slice(0, issuer_known_messages_no);
 			const committed_message_scalars = message_scalars.slice(issuer_known_messages_no);
+			const proof_scalars = [...signer_scalars, secret_prover_blind, ...committed_message_scalars];
 			const res = await BlindCoreVerify(
 				PK,
 				signature,
@@ -529,7 +530,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 				blind_generators,
 				keybind_generators,
 				header,
-				[...signer_scalars, secret_prover_blind, ...committed_message_scalars],
+				proof_scalars,
 				committed_points.map(octets_to_point_E1),
 				api_id,
 			);
@@ -942,15 +943,15 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			if (commitment_indexes.some(i => disclosed_set.has(i))) {
 				throw new Error("Non-disjoint disclosed_indexes and commitment_indexes", { cause: { disclosed_indexes, commitment_indexes } });
 			}
-			const disclosed_messages = disclosed_indexes.map(i => messages[i]);
-			const undisclosed_indexes = range(L).filter(i => !disclosed_set.has(i));
-			const undisclosed_messages = undisclosed_indexes.map(i => messages[i]);
-			const ji = undisclosed_indexes;
 
 			const N = commitment_indexes.length;
 			const R = disclosed_indexes.length;
-			const U = undisclosed_indexes.length;
+			const U = L - R;
 			const K = prover_binding_keys.length;
+			const disclosed_messages = disclosed_indexes.map(i => messages[i]);
+			const undisclosed_indexes = range(L).filter(i => !disclosed_set.has(i));
+			const ji = undisclosed_indexes;
+			const undisclosed_messages = undisclosed_indexes.map(i => messages[i]);
 
 			const init_random_scalars = await calculate_random_scalars(5 + U + 2 * K);
 			const [r1, r2, _e_tilde, r1_tilde, r3_tilde, ...message_randoms] = init_random_scalars;
@@ -958,8 +959,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const r_key = message_randoms.slice(U + K);
 
 			const [Q1, ...Hi] = generators;
-			const [Q2, ...blind_msg_generators] = blind_generators;
-			const MsgGenerators = [...Hi, Q2, ...blind_msg_generators];
+			const MsgGenerators = [...Hi, ...blind_generators];
 
 			const dpk = prover_binding_keys;
 			const dpkbar = dpk.map((dpk, i) => dpk.add(keybind_generators[i].multiply(r_key[i])));
@@ -1213,8 +1213,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const s_hat = commitments_proof;
 
 			const [Q1, ...Hi] = generators;
-			const [Q2, ...blind_msg_generators] = blind_generators;
-			const MsgGenerators = [...Hi, Q2, ...blind_msg_generators];
+			const MsgGenerators = [...Hi, ...blind_generators];
 
 			const [_Abar, _Bbar, _D, T1, T2_init, domain] = await ProofVerifyInit(
 				PK,
@@ -1353,15 +1352,8 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			const N = committed_points.length;
 			const M = generators.length - 1 - N;
 
-			const c_arr = [
-				M,
-				N,
-				...generators,
-				...committed_points,
-				C,
-				Cbar,
-			];
-			const c_octs = serialize(c_arr);
+			const c_arr = [M, N, ...generators, ...committed_points];
+			const c_octs = serialize([...c_arr, C, Cbar]);
 			return hash_to_scalar(c_octs, blind_challenge_dst);
 		}
 
