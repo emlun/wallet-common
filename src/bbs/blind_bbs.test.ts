@@ -2,7 +2,7 @@ import { assert, describe, it } from "vitest";
 
 import { fromHex, toHex, toU8, toUtf8 } from "../utils/util";
 import { asyncAssertThrows } from "../testutil";
-import { DisclosureChoice, getCipherSuite, PointG1 } from ".";
+import { DisclosureChoice, getCipherSuite, PointG1 } from "./blind_bbs";
 
 
 describe("Suite:", () => {
@@ -13,9 +13,11 @@ describe("Suite:", () => {
 
 		const suite = getCipherSuite(suiteId);
 		const {
-			serialize,
-			hash_to_scalar,
-			messages_to_scalars,
+			Bbs: {
+				serialize,
+				hash_to_scalar,
+				messages_to_scalars,
+			},
 			params: {
 				curves: { G1 },
 			},
