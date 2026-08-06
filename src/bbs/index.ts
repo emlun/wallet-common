@@ -7,6 +7,7 @@ import { bls12_381 } from "@noble/curves/bls12-381.js";
 import { concat, fromHex, I2OSP, isStrictlyIncreasing, OS2IP, range, split_at, split_sections, toHex, toU8, toUtf8 } from "../utils/util";
 import { hashToCurve, HashToCurveSuite, sha256 } from "../arkg/hash_to_curve";
 import { WeierstrassPoint } from "@noble/curves/abstract/weierstrass";
+import * as util from "./util";
 
 
 function createSuite(suite: SuiteParams): CipherSuite {
@@ -30,6 +31,8 @@ function createSuite(suite: SuiteParams): CipherSuite {
 	};
 
 	const { expand_message, prime_subgroup_order } = suite.hash_to_curve_suite.suiteParams;
+	const sum = (points: PointG1[]) => util.sum(G1, points);
+	const sumprod = (points: PointG1[], scalars: bigint[]) => util.sumprod(G1, points, scalars);
 
 	function isG1(p: PointG1 | PointG2): p is PointG1 {
 		return p instanceof G1.Point;
@@ -37,21 +40,6 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 	function isG2(p: PointG1 | PointG2): p is PointG2 {
 		return p instanceof G2.Point;
-	}
-
-	function sum(points: PointG1[]): PointG1 {
-		return points.reduce((sum, P) => sum.add(P), G1.Point.ZERO);
-	}
-
-	function sumprod(points: PointG1[], scalars: bigint[]): PointG1 {
-		if (points.length !== scalars.length) {
-			throw new Error("Invalid input dimensions", { cause: { points, scalars } });
-		}
-		return sum(points.map((Hi, i) =>
-			scalars[i] === 0n
-				? G1.Point.ZERO
-				: Hi.multiply(scalars[i])
-		));
 	}
 
 	function get_random(n: number): BufferSource {
