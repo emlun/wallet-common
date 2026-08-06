@@ -1,8 +1,8 @@
 import { assert, describe, it } from "vitest";
 
-import { concat, fromHex, range, toHex, toU8, toUtf8 } from "../utils/util";
+import { concat, fromHex, toHex, toU8, toUtf8 } from "../utils/util";
 import { asyncAssertThrows } from "../testutil";
-import { DisclosureChoice, getCipherSuite } from ".";
+import { getCipherSuite } from ".";
 
 
 describe("Suite:", () => {
@@ -17,7 +17,6 @@ describe("Suite:", () => {
 			KeyGen,
 			SkToPk,
 			create_generators,
-			serialize,
 			hash_to_scalar,
 			messages_to_scalars,
 		} = suite;

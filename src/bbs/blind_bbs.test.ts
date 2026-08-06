@@ -1,6 +1,6 @@
 import { assert, describe, it } from "vitest";
 
-import { concat, fromHex, range, toHex, toU8, toUtf8 } from "../utils/util";
+import { fromHex, toHex, toU8, toUtf8 } from "../utils/util";
 import { asyncAssertThrows } from "../testutil";
 import { DisclosureChoice, getCipherSuite, PointG1 } from ".";
 
