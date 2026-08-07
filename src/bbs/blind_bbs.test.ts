@@ -12,6 +12,9 @@ describe("Blind BBS suite:", () => {
 		'BBS-SCHNORR_BLS12381G1_XMD:SHA-256_SSWU_RO_',
 		'BBS-BLS_BLS12381G1_XMD:SHA-256_SSWU_RO_',
 	];
+	const blindBlsSuites: SuiteId[] = [
+		'BBS-BLS_BLS12381G1_XMD:SHA-256_SSWU_RO_',
+	];
 
 	nonKeybindSuites.forEach(suiteId => describe(suiteId, () => {
 		const suite = getCipherSuite(
@@ -47,6 +50,23 @@ describe("Blind BBS suite:", () => {
 
 		describe_non_keybind_properties(suite);
 		describe_keybind_properties(suite);
+	}));
+
+	blindBlsSuites.forEach(suiteId => describe(suiteId, () => {
+		const suite = getCipherSuite(
+			suiteId,
+			{
+				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-mocked-random-scalars
+				// with
+				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-commitment
+				mocked_random_scalars_params: {
+					SEED: toUtf8("3.141592653589793238462643383279"),
+					DST: toUtf8("BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_H2G_HM2S_COMMIT_MOCK_RANDOM_SCALARS_DST_"),
+				},
+			},
+		);
+
+		describe_blind_bls_properties(suite);
 	}));
 
 	function describe_test_vectors(suite: CipherSuite) {
@@ -905,6 +925,129 @@ describe("Blind BBS suite:", () => {
 					});
 				});
 			});
+		});
+	}
+
+	function describe_blind_bls_properties(suite: CipherSuite) {
+		const {
+			BlindBbs,
+			Bbs: {
+				serialize,
+				hash_to_scalar,
+				create_generators,
+				calculate_random_scalars,
+			},
+			params: {
+				curves: { G2, fields: { Fr } },
+				octet_point_length,
+			},
+		} = suite;
+		const { api_id } = BlindBbs;
+
+		it("supports BlindBLS proofs.", async () => {
+			const committed_messages = [
+				fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
+				fromHex("a75d8b634891af92282cc81a675972d1929d3149863c1fc0"),
+				fromHex("835889a40744813a892eff9deb1edaeb"),
+				fromHex("e1ca9729410dc6ba"),
+				fromHex(""),
+			];
+
+			const keybind_private_keys = [
+				await hash_to_scalar(toUtf8("keybind_private_key.0"), toUtf8("Key Binding Blind BBS test")),
+				await hash_to_scalar(toUtf8("keybind_private_key.1"), toUtf8("Key Binding Blind BBS test")),
+				await hash_to_scalar(toUtf8("keybind_private_key.2"), toUtf8("Key Binding Blind BBS test")),
+			];
+			const keybind_generators = await create_generators(keybind_private_keys.length, concat(toUtf8("KEYBIND_"), api_id));
+			const keybind_public_keys: PointG1[] = (
+				keybind_private_keys
+					.map((k, i) => keybind_generators[i].multiply(k))
+			);
+
+			// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-proof-test-vectors
+			const SK = 0x60e55110f76883a13d030b2f6bd11883422d5abde717569fc0731f51237169fcn;
+			const PK = fromHex(
+				"a820f230f6ae38503b86c70dc50b61c58a77e45c39ab25c0652bbaa8fa1" +
+				"36f2851bd4781c9dcde39fc9d1d52c9e60268061e7d7632171d91aa8d46" +
+				"0acee0e96f1e7c4cfb12d3ff9ab5d5dc91c277db75c845d649ef3c4f63a" +
+				"ebc364cd55ded0c"
+			);
+			const header = fromHex("11223344556677889900aabbccddeeff");
+
+			const messages = [
+				"9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02",
+				"c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80",
+				"7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73",
+				"77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c",
+				"496694774c5604ab1b2544eababcf0f53278ff50",
+				"515ae153e22aae04ad16f759e07237b4",
+				"d183ddc6e2665aa4e2f088af",
+				"ac55fb33a75909ed",
+				"96012096",
+				"",
+			].map(fromHex);
+
+			const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
+
+			const {
+				BlindSign,
+				BlindProofGenInit,
+				BlindProofGenFinalize,
+				BlindProofVerify,
+				CommitInit,
+				CommitFinalize,
+				Sig,
+			} = BlindBbs;
+
+			const keybind_public_keys_serialized: BufferSource[] = keybind_public_keys.map(K => serialize([K]));
+
+			const [state, secret_prover_blind, challenge] = await CommitInit(committed_messages, keybind_public_keys_serialized);
+			const commitment_with_proof = await CommitFinalize(
+				state,
+				await Promise.all(keybind_private_keys.map(
+					(k, i) => Sig.Sign(keybind_generators[i], k, challenge))),
+			);
+			const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
+			const options: DisclosureChoice[] = ["DISCLOSE", "COMMIT", "HIDE"];
+			const message_disclosures: DisclosureChoice[] = messages.map((_, i) => options[i % 3]);
+			const committed_message_disclosures: DisclosureChoice[] = committed_messages.map((_, i) => options[i % 3]);
+			const [proof_state, , dpk_challenges] = await BlindProofGenInit(
+				PK, signature, header, presentation_header,
+				[...messages, ...committed_messages], messages.length,
+				[...message_disclosures, ...committed_message_disclosures],
+				keybind_public_keys_serialized,
+				secret_prover_blind,
+			);
+
+			const keybind_sigs = await Promise.all(keybind_private_keys.map(async (dsk, i) => {
+				const hash = async (msg: BufferSource) => G2.hashToCurve(
+					toU8(msg),
+					{ DST: toUtf8('BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_') },
+				);
+
+				const [bst] = await calculate_random_scalars(1);
+				const mbar = (await hash(dpk_challenges[i])).multiply(bst);
+
+				const blind_sig = mbar.multiply(dsk);
+
+				const unblind_sig = blind_sig.multiply(Fr.inv(bst));
+				return serialize([unblind_sig]);
+			}));
+
+			assert(keybind_sigs.every(sig => sig.byteLength === octet_point_length * 2));
+			const proof = await BlindProofGenFinalize(proof_state, keybind_sigs);
+			assert(await BlindProofVerify(
+				PK,
+				proof,
+				header,
+				presentation_header,
+				messages.length,
+				[
+					...messages.filter((_, i) => message_disclosures[i] === "DISCLOSE"),
+					...committed_messages.filter((_, i) => committed_message_disclosures[i] === "DISCLOSE"),
+				],
+				[...message_disclosures, ...committed_message_disclosures],
+			));
 		});
 	}
 });
