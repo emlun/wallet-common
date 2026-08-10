@@ -3,7 +3,7 @@
 
 import * as ec from './ec';
 import * as hash_to_curve from './hash_to_curve';
-import { byteArrayEquals, concat, I2OSP, toU8 } from '../utils/util';
+import { byteArrayEquals, concat, I2OSP, toU8, toUtf8 } from '../utils/util';
 import { COSE_ALG_ARKG_P256, ParsedCOSEKeyArkgPubSeed, ParsedCOSEKeyEc2Public } from '../cose';
 
 
@@ -100,8 +100,8 @@ function arkg<BlPublicKey, BlPrivateKey, BlindingFactor, KemPublicKey, KemPrivat
 			}
 
 			const ctx_prime = concat(I2OSP(ctx.byteLength, 1), ctx);
-			const ctx_kem = concat(new TextEncoder().encode('ARKG-Derive-Key-KEM.'), ctx_prime);
-			const ctx_bl = concat(new TextEncoder().encode('ARKG-Derive-Key-BL.'), ctx_prime);
+			const ctx_kem = concat(toUtf8('ARKG-Derive-Key-KEM.'), ctx_prime);
+			const ctx_bl = concat(toUtf8('ARKG-Derive-Key-BL.'), ctx_prime);
 			const [ikm_tau, c] = await kem.encaps(pk_kem, ikm, ctx_kem);
 			const tau = await bl.prf(ikm_tau, ctx_bl);
 			const pk_prime = await bl.blindPublicKey(pk_bl, tau);
@@ -119,8 +119,8 @@ function arkg<BlPublicKey, BlPrivateKey, BlindingFactor, KemPublicKey, KemPrivat
 			}
 
 			const ctx_prime = concat(I2OSP(ctx.byteLength, 1), ctx);
-			const ctx_kem = concat(new TextEncoder().encode('ARKG-Derive-Key-KEM.'), ctx_prime);
-			const ctx_bl = concat(new TextEncoder().encode('ARKG-Derive-Key-BL.'), ctx_prime);
+			const ctx_kem = concat(toUtf8('ARKG-Derive-Key-KEM.'), ctx_prime);
+			const ctx_bl = concat(toUtf8('ARKG-Derive-Key-BL.'), ctx_prime);
 			const ikm_tau = await kem.decaps(sk_kem, kh, ctx_kem);
 			const tau = await bl.prf(ikm_tau, ctx_bl);
 			const sk_prime = await bl.blindPrivateKey(sk_bl, tau);
@@ -135,7 +135,7 @@ function arkgBlEcAdd(
 	DST_ext: BufferSource,
 ): BlScheme<ec.Point, bigint, bigint, ec.Point, bigint> {
 	const { suiteParams } = hash_to_curve.hashToCurve(hashToCurveSuiteId, concat(
-		new TextEncoder().encode('ARKG-BL-EC.'),
+		toUtf8('ARKG-BL-EC.'),
 		DST_ext,
 	));
 	const { curve: crv } = suiteParams;
@@ -145,7 +145,7 @@ function arkgBlEcAdd(
 	}
 
 	const prf = async (ikm_tau: BufferSource, ctx: BufferSource): Promise<bigint> => {
-		const DST_tau = concat(new TextEncoder().encode('ARKG-BL-EC.'), DST_ext, ctx);
+		const DST_tau = concat(toUtf8('ARKG-BL-EC.'), DST_ext, ctx);
 		const { hashToScalarField } = hash_to_curve.hashToCurve(hashToCurveSuiteId, DST_tau);
 		const [[tau]] = await hashToScalarField(ikm_tau, 1);
 		return tau;
@@ -153,7 +153,7 @@ function arkgBlEcAdd(
 
 	return {
 		deriveKeypair: async (ikm: BufferSource): Promise<[ec.Point, bigint]> => {
-			const DST_bl_sk = concat(new TextEncoder().encode('ARKG-BL-EC-KG.'), DST_ext);
+			const DST_bl_sk = concat(toUtf8('ARKG-BL-EC-KG.'), DST_ext);
 			const { hashToScalarField } = hash_to_curve.hashToCurve(hashToCurveSuiteId, DST_bl_sk);
 			const [[sk]] = await hashToScalarField(ikm, 1);
 			const pk = ec.vartimeMul(crv, crv.generator, sk);
@@ -188,7 +188,7 @@ function arkgHmacKem<PublicKey, PrivateKey>(
 		deriveKeypair: SubKem.deriveKeypair,
 
 		encaps: async (pk: PublicKey, ikm: BufferSource, ctx: BufferSource): Promise<[ArrayBuffer, ArrayBuffer]> => {
-			const ctx_sub = concat(new TextEncoder().encode('ARKG-KEM-HMAC.'), DST_ext, ctx);
+			const ctx_sub = concat(toUtf8('ARKG-KEM-HMAC.'), DST_ext, ctx);
 			const [k_prime, c_prime] = await SubKem.encaps(pk, ikm, ctx_sub);
 
 			const hkdf_ikm = await crypto.subtle.importKey("raw", k_prime, { name: "HKDF" }, false, ["deriveBits", "deriveKey"]);
@@ -198,7 +198,7 @@ function arkgHmacKem<PublicKey, PrivateKey>(
 					name: "HKDF",
 					hash,
 					salt: new Uint8Array([]),
-					info: concat(new TextEncoder().encode('ARKG-KEM-HMAC-mac.'), DST_ext, ctx),
+					info: concat(toUtf8('ARKG-KEM-HMAC-mac.'), DST_ext, ctx),
 				},
 				hkdf_ikm,
 				{ name: "HMAC", hash, length: 32*8 },
@@ -212,7 +212,7 @@ function arkgHmacKem<PublicKey, PrivateKey>(
 					name: "HKDF",
 					hash,
 					salt: new Uint8Array([]),
-					info: concat(new TextEncoder().encode('ARKG-KEM-HMAC-shared.'), DST_ext, ctx),
+					info: concat(toUtf8('ARKG-KEM-HMAC-shared.'), DST_ext, ctx),
 				},
 				hkdf_ikm,
 				k_prime.byteLength * 8,
@@ -226,7 +226,7 @@ function arkgHmacKem<PublicKey, PrivateKey>(
 			const c_u8 = toU8(c);
 			const t = c_u8.slice(0, 16);
 			const c_prime = c_u8.slice(16);
-			const ctx_sub = concat(new TextEncoder().encode('ARKG-KEM-HMAC.'), DST_ext, ctx);
+			const ctx_sub = concat(toUtf8('ARKG-KEM-HMAC.'), DST_ext, ctx);
 			const k_prime = await SubKem.decaps(sk, c_prime, ctx_sub);
 
 			const ikm = await crypto.subtle.importKey("raw", k_prime, { name: "HKDF" }, false, ["deriveBits", "deriveKey"]);
@@ -236,7 +236,7 @@ function arkgHmacKem<PublicKey, PrivateKey>(
 					name: "HKDF",
 					hash,
 					salt: new Uint8Array([]),
-					info: concat(new TextEncoder().encode('ARKG-KEM-HMAC-mac.'), DST_ext, ctx),
+					info: concat(toUtf8('ARKG-KEM-HMAC-mac.'), DST_ext, ctx),
 				},
 				ikm,
 				{ name: "HMAC", hash, length: 32*8 },
@@ -251,7 +251,7 @@ function arkgHmacKem<PublicKey, PrivateKey>(
 						name: "HKDF",
 						hash,
 						salt: new Uint8Array([]),
-						info: concat(new TextEncoder().encode('ARKG-KEM-HMAC-shared.'), DST_ext, ctx),
+						info: concat(toUtf8('ARKG-KEM-HMAC-shared.'), DST_ext, ctx),
 					},
 					ikm,
 					k_prime.byteLength * 8,
@@ -277,10 +277,10 @@ function arkgEcdhKem(
 		throw new Error("Unknown curve: " + namedCurve);
 	}
 
-	const DST_aug = concat(new TextEncoder().encode('ARKG-ECDH.'), DST_ext);
+	const DST_aug = concat(toUtf8('ARKG-ECDH.'), DST_ext);
 
 	const deriveKeypair = async (ikm: BufferSource): Promise<[CryptoKey, CryptoKey]> => {
-		const DST_kem_sk = concat(new TextEncoder().encode('ARKG-KEM-ECDH-KG.'), DST_aug);
+		const DST_kem_sk = concat(toUtf8('ARKG-KEM-ECDH-KG.'), DST_aug);
 		const { hashToScalarField } = hash_to_curve.hashToCurve(hashToCurveSuiteId, DST_kem_sk);
 		const [[sk]] = await hashToScalarField(ikm, 1);
 		const pk = ec.vartimeMul(crv, crv.generator, sk);
@@ -318,8 +318,8 @@ export type EcInstanceId = (
 // Declare as factory functions instead of a global variable registry to prevent callers from overriding internal properties
 const ecInstances: { [id in EcInstanceId]: () => ArkgInstance<ec.Point, bigint, CryptoKey, CryptoKey, ec.Point, bigint> } = {
 	'ARKG-P256': () => arkg(
-		arkgBlEcAdd("P256_XMD:SHA-256_SSWU_RO_", new TextEncoder().encode('ARKG-P256')),
-		arkgEcdhKem("P-256", "SHA-256", "P256_XMD:SHA-256_SSWU_RO_", new TextEncoder().encode('ARKG-P256')),
+		arkgBlEcAdd("P256_XMD:SHA-256_SSWU_RO_", toUtf8('ARKG-P256')),
+		arkgEcdhKem("P-256", "SHA-256", "P256_XMD:SHA-256_SSWU_RO_", toUtf8('ARKG-P256')),
 	),
 };
 

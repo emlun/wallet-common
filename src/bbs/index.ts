@@ -4,7 +4,7 @@ import type { BlsCurvePair } from "@noble/curves/abstract/bls";
 import type { Fp2 } from "@noble/curves/abstract/tower";
 import { bls12_381 } from "@noble/curves/bls12-381.js";
 
-import { concat, fromHex, I2OSP, OS2IP, toHex, toU8 } from "../utils/util";
+import { concat, fromHex, I2OSP, OS2IP, toHex, toU8, toUtf8 } from "../utils/util";
 import { hashToCurve, HashToCurveSuite } from "../arkg/hash_to_curve";
 import { WeierstrassPoint } from "@noble/curves/abstract/weierstrass";
 
@@ -24,13 +24,13 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		sig_generator_dst,
 		message_generator_seed,
 	} = suite.create_generators_dsts ?? {
-		sig_generator_seed: new TextEncoder().encode("SIG_GENERATOR_SEED_"),
-		sig_generator_dst: new TextEncoder().encode("SIG_GENERATOR_DST_"),
-		message_generator_seed: new TextEncoder().encode("MESSAGE_GENERATOR_SEED"),
+		sig_generator_seed: toUtf8("SIG_GENERATOR_SEED_"),
+		sig_generator_dst: toUtf8("SIG_GENERATOR_DST_"),
+		message_generator_seed: toUtf8("MESSAGE_GENERATOR_SEED"),
 	};
 
 	const { expand_message, prime_subgroup_order } = suite.hash_to_curve_suite.suiteParams;
-	const api_id = new TextEncoder().encode(suite.id + "H2G_HM2S_");
+	const api_id = toUtf8(suite.id + "H2G_HM2S_");
 
 	function sum(points: PointG1[]): PointG1 {
 		return points.reduce((sum, P) => sum.add(P), G1.Point.ZERO);
@@ -84,7 +84,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		header: BufferSource,
 		api_id: BufferSource,
 	): Promise<bigint> {
-		const hash_to_scalar_dst = concat(api_id, new TextEncoder().encode("H2S_"));
+		const hash_to_scalar_dst = concat(api_id, toUtf8("H2S_"));
 		const two64min1 = (1n << 64n) - 1n;
 		const L = H_Points.length;
 		if (header.byteLength > two64min1) {
@@ -108,7 +108,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		if (messages.length >= Math.pow(2, 64)) {
 			throw new Error(`Too many messages: ${messages.length} >= 2^64`, { cause: { length: messages.length } });
 		}
-		const map_msg_to_scalar_as_hash = new TextEncoder().encode("MAP_MSG_TO_SCALAR_AS_HASH_");
+		const map_msg_to_scalar_as_hash = toUtf8("MAP_MSG_TO_SCALAR_AS_HASH_");
 		const map_dst = concat(api_id, map_msg_to_scalar_as_hash);
 
 		return Promise.all(messages.map(message => hash_to_scalar(message, map_dst)));
@@ -135,7 +135,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 	async function KeyGen(key_material: BufferSource, key_info: BufferSource | null, key_dst: BufferSource | null): Promise<bigint> {
 		key_material = key_material ?? new Uint8Array([]);
 		key_info = key_info ?? new Uint8Array([]);
-		const dst = key_dst ?? new TextEncoder().encode(suite.id + "KEYGEN_DST_");
+		const dst = key_dst ?? toUtf8(suite.id + "KEYGEN_DST_");
 
 		if (key_material.byteLength < 32) {
 			throw new Error(`key_material too short: ${toHex(key_material)}`, { cause: { key_material } });
@@ -371,7 +371,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		messages: bigint[],
 		api_id: BufferSource,
 	): Promise<BufferSource> {
-		const hash_to_scalar_dst = concat(api_id, new TextEncoder().encode("H2S_"));
+		const hash_to_scalar_dst = concat(api_id, toUtf8("H2S_"));
 
 		const L = messages.length;
 		if (generators.length !== L + 1) {
@@ -604,7 +604,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		ph: BufferSource,
 		api_id: BufferSource,
 	): Promise<bigint> {
-		const hash_to_scalar_dst = concat(api_id, new TextEncoder().encode("H2S_"));
+		const hash_to_scalar_dst = concat(api_id, toUtf8("H2S_"));
 
 		const R = disclosed_indexes.length;
 		if (disclosed_messages.length !== R) {
@@ -704,7 +704,7 @@ export function getCipherSuite(
 				id: 'BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_',
 				octet_scalar_length: 32,
 				octet_point_length: 48,
-				hash_to_curve_suite: hashToCurve('BLS12381G1_XMD:SHA-256_SSWU_RO_', new TextEncoder().encode('Irrelevant, unused')),
+				hash_to_curve_suite: hashToCurve('BLS12381G1_XMD:SHA-256_SSWU_RO_', toUtf8('Irrelevant, unused')),
 				hash_to_curve_g1: (msg: BufferSource, DST: BufferSource) =>
 					(bls12_381.G1.hashToCurve(toU8(msg), { DST: toU8(DST) }) as PointG1),
 				expand_len: 48,

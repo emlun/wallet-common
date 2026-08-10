@@ -126,6 +126,16 @@ export function base64urlToBytes(base64urlValue: string): Uint8Array {
 	return fromBase64(base64);
 }
 
+/** Alias of `new TextEncoder().encode(s)`. */
+export function toUtf8(s: string): Uint8Array {
+	return new TextEncoder().encode(s);
+}
+
+/** Alias of `new TextDecoder().decode(b)`. */
+export function fromUtf8(b: BufferSource): string {
+	return new TextDecoder().decode(b);
+}
+
 export function generateRandomIdentifier(length: number) {
 	const array = new Uint8Array(length);
 	crypto.getRandomValues(array);

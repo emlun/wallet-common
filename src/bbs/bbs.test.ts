@@ -1,6 +1,6 @@
 import { assert, describe, it } from "vitest";
 
-import { concat, fromHex, toHex, toU8 } from "../utils/util";
+import { concat, fromHex, toHex, toU8, toUtf8 } from "../utils/util";
 import { asyncAssertThrows } from "../testutil";
 import { getCipherSuite } from ".";
 
@@ -42,7 +42,7 @@ describe("Suite:", () => {
 				const key_material = fromHex("746869732d49532d6a7573742d616e2d546573742d494b4d2d746f2d67656e65726174652d246528724074232d6b6579");
 				const key_info = fromHex("746869732d49532d736f6d652d6b65792d6d657461646174612d746f2d62652d757365642d696e2d746573742d6b65792d67656e");
 				const { api_id, KeyGen, SkToPk } = getCipherSuite(suiteId);
-				const key_dst = concat(api_id, new TextEncoder().encode("KEYGEN_DST_"));
+				const key_dst = concat(api_id, toUtf8("KEYGEN_DST_"));
 				const SK = await KeyGen(key_material, key_info, key_dst);
 				const PK = SkToPk(SK);
 
@@ -117,14 +117,14 @@ describe("Suite:", () => {
 					suiteId,
 					{
 						create_generators_dsts: {
-							sig_generator_seed: new TextEncoder().encode("H2G_HM2S_SIG_GENERATOR_SEED_"),
-							sig_generator_dst: new TextEncoder().encode("H2G_HM2S_SIG_GENERATOR_DST_"),
-							message_generator_seed: new TextEncoder().encode("H2G_HM2S_BP_MESSAGE_GENERATOR_SEED"),
+							sig_generator_seed: toUtf8("H2G_HM2S_SIG_GENERATOR_SEED_"),
+							sig_generator_dst: toUtf8("H2G_HM2S_SIG_GENERATOR_DST_"),
+							message_generator_seed: toUtf8("H2G_HM2S_BP_MESSAGE_GENERATOR_SEED"),
 						},
 					}
 				);
 
-				const api_id = new TextEncoder().encode(suiteId);
+				const api_id = toUtf8(suiteId);
 				const generators = await create_generators(1, api_id);
 
 				assert.equal(generators.length, 1);
@@ -304,7 +304,7 @@ describe("Suite:", () => {
 						// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-mocked-random-scalars
 						mocked_random_scalars_params: {
 							SEED: fromHex("332e313431353932363533353839373933323338343632363433333833323739"),
-							DST: concat(defaultSuite.api_id, new TextEncoder().encode("MOCK_RANDOM_SCALARS_DST_")),
+							DST: concat(defaultSuite.api_id, toUtf8("MOCK_RANDOM_SCALARS_DST_")),
 						},
 					},
 				);
