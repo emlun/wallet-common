@@ -4,7 +4,7 @@ import type { BlsCurvePair } from "@noble/curves/abstract/bls";
 import type { Fp2 } from "@noble/curves/abstract/tower";
 import { bls12_381 } from "@noble/curves/bls12-381.js";
 
-import { concat, fromHex, I2OSP, OS2IP, toHex, toU8, toUtf8 } from "../utils/util";
+import { concat, fromHex, I2OSP, OS2IP, range, toHex, toU8, toUtf8 } from "../utils/util";
 import { hashToCurve, HashToCurveSuite } from "../arkg/hash_to_curve";
 import { WeierstrassPoint } from "@noble/curves/abstract/weierstrass";
 
@@ -48,7 +48,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 
 	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-random-scalars */
 	async function real_calculate_random_scalars(count: number): Promise<bigint[]> {
-		return Array(count).fill(0n).map(() => Fr.create(OS2IP(get_random(expand_len))));
+		return range(count).map(() => Fr.create(OS2IP(get_random(expand_len))));
 	};
 
 	/** https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-random-scalars */
@@ -61,7 +61,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 			throw new Error("Output length too high", { cause: { count, expand_len, out_len } });
 		}
 		const v = toU8(await expand_message(SEED, DST, out_len));
-		return Array(count).fill(0n).map((_, i) => Fr.create(OS2IP(v.slice(i * expand_len, (i + 1) * expand_len))));
+		return range(count).map(i => Fr.create(OS2IP(v.slice(i * expand_len, (i + 1) * expand_len))));
 	};
 
 	const calculate_random_scalars: (count: number) => Promise<bigint[]> = (
@@ -224,7 +224,7 @@ function createSuite(suite: SuiteParams): CipherSuite {
 		});
 
 		const scalar_octets = proof_octets_u8.slice(octet_point_length * 3);
-		const sj = new Array(scalar_octets.length / octet_scalar_length).fill(0).map((_, j) => {
+		const sj = range(scalar_octets.length / octet_scalar_length).map(j => {
 			const index = j * octet_scalar_length;
 			const end_index = index + octet_scalar_length;
 			const sj = OS2IP(scalar_octets.slice(index, end_index));

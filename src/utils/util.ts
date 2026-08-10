@@ -143,3 +143,8 @@ export function generateRandomIdentifier(length: number) {
 		"",
 	);
 }
+
+/** Return an array of the integers from 0 to `n` (exclusive). */
+export function range(n: number): number[] {
+	return Array(n).fill(0).map((_, i) => i);
+}
