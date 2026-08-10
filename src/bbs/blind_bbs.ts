@@ -35,23 +35,6 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 		return Bbs.create_generators(count, keybind_api_id);
 	}
 
-	async function deserialize_and_validate_commit(
-		commitment_with_proof: BufferSource,
-		api_id: BufferSource,
-	): Promise<[PointG1, PointG1[], PointG1, PointG1[], PointG1[]]> {
-		if (commitment_with_proof.byteLength === 0) {
-			return [G1.Point.ZERO, [], (await create_blind_generators(1))[0], [], []];
-		}
-
-		const [commitment, commitment_proof] = octets_to_commitment_with_proof(toU8(commitment_with_proof));
-		const [, message_proofs, , point_proofs] = commitment_proof;
-		const blind_generators = await create_blind_generators(1 + message_proofs.length);
-		const keybind_generators = await create_keybind_generators(point_proofs.length);
-		const [Q2, ...blind_msg_generators] = blind_generators;
-		await CoreCommitVerify(commitment, commitment_proof, blind_generators, keybind_generators, api_id);
-		return [...commitment, Q2, blind_msg_generators, keybind_generators];
-	}
-
 	async function Commit(
 		committed_messages: BufferSource[] | null,
 	): Promise<[BufferSource, bigint]> {
@@ -96,6 +79,23 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 			}),
 			)
 		);
+	}
+
+	async function deserialize_and_validate_commit(
+		commitment_with_proof: BufferSource,
+		api_id: BufferSource,
+	): Promise<[PointG1, PointG1[], PointG1, PointG1[], PointG1[]]> {
+		if (commitment_with_proof.byteLength === 0) {
+			return [G1.Point.ZERO, [], (await create_blind_generators(1))[0], [], []];
+		}
+
+		const [commitment, commitment_proof] = octets_to_commitment_with_proof(toU8(commitment_with_proof));
+		const [, message_proofs, , point_proofs] = commitment_proof;
+		const blind_generators = await create_blind_generators(1 + message_proofs.length);
+		const keybind_generators = await create_keybind_generators(point_proofs.length);
+		const [Q2, ...blind_msg_generators] = blind_generators;
+		await CoreCommitVerify(commitment, commitment_proof, blind_generators, keybind_generators, api_id);
+		return [...commitment, Q2, blind_msg_generators, keybind_generators];
 	}
 
 	async function BlindSign(
@@ -261,6 +261,39 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 		return state_and_add_zkp_info_and_dpk_challenges;
 	}
 
+	async function BlindProofGenFinalize(
+		state: BufferSource,
+		prover_binding_signatures: BufferSource[] | null,
+	): Promise<BufferSource> {
+		prover_binding_signatures = prover_binding_signatures ?? [];
+
+		const [incomplete_proof, challenge, r_key] = octets_to_blind_proof_gen_state(state);
+		const randomized_keys = incomplete_proof_octets_to_randomized_keys(incomplete_proof);
+
+		const adapted_sigs: KeyBindingSignature[] = prover_binding_signatures.map((sig, i) => {
+			switch (sig.byteLength) {
+				case 2 * octet_scalar_length:
+					const [s, c] = schnorr_parse_signature(sig);
+					return ["SCHNORR", schnorr_encode_signature([Fr.add(s, Fr.mul(r_key[i], c)), c])];
+
+				case 2 * octet_point_length:
+					return [
+						"BLS",
+						Bbs.serialize([
+							Bbs.octets_to_point_E2(sig).add(
+								G2.hashToCurve(toU8(Bbs.serialize([randomized_keys[i], challenge])))
+									.multiply(r_key[i])),
+						]),
+					];
+
+				default:
+					throw new Error("Unknown signature length: " + sig.byteLength);
+			}
+		});
+
+		return concat(incomplete_proof, key_bind_sigs_to_octets(adapted_sigs));
+	}
+
 	async function BlindProofVerify(
 		PK: BufferSource,
 		proof: BufferSource,
@@ -323,50 +356,6 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 			api_id,
 		);
 		return result;
-	}
-
-	function commit_state_to_octets(state: CommitState): BufferSource {
-		const [K, C, s_hat, m_hat, challenge] = state;
-		const M = m_hat.length;
-		const N = K.length;
-		return Bbs.serialize([M, N, ...K, C, s_hat, ...m_hat, challenge]);
-	}
-
-	function octets_to_commit_state(octets: BufferSource): CommitState {
-		const state_len_floor = 8 + 8 + octet_point_length + 2 * octet_scalar_length;
-		if (octets.byteLength < state_len_floor) {
-			throw new Error(`State too short: expected at least ${state_len_floor} octets, was ${octets.byteLength}`, {
-				cause:
-					{ octets }
-			});
-		}
-		const [[M_octs, N_octs], rest] = split_sections(toU8(octets), [8, 8]);
-		const M = Number(OS2IP(M_octs));
-		const N = Number(OS2IP(N_octs));
-		const state_len = state_len_floor + N * octet_point_length + M * octet_scalar_length;
-		if (octets.byteLength !== state_len) {
-			throw new Error(`Invalid state length: expected ${state_len} octets, was ${octets.byteLength}`, {
-				cause: {
-					octets,
-					state_len
-				}
-			});
-		}
-		const [[K_octs, C_octs, s_hat_octs, m_hat_octs, challenge_octs], tail] = split_sections(
-			rest,
-			[N * octet_point_length, octet_point_length, octet_scalar_length, M * octet_scalar_length, octet_scalar_length],
-		);
-		if (tail.byteLength !== 0) {
-			throw new Error("Trailing octets", { cause: { octets, state_len, tail } });
-		}
-
-		return [
-			split_sections(K_octs, range(N).map(() => octet_point_length))[0].map(Bbs.octets_to_point_E1),
-			Bbs.octets_to_point_E1(C_octs),
-			OS2IP(s_hat_octs),
-			split_sections(m_hat_octs, range(M).map(() => octet_scalar_length))[0].map(OS2IP),
-			OS2IP(challenge_octs),
-		];
 	}
 
 	async function CoreCommitInit(
@@ -669,83 +658,6 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 		return [state, add_zkp_info, r_key_challenges];
 	}
 
-	function blind_proof_gen_state_to_octets(
-		incomplete_proof: BufferSource,
-		challenge: bigint,
-		r_key: bigint[],
-	): BufferSource {
-		return Bbs.serialize([
-			incomplete_proof,
-			challenge,
-			...r_key,
-		]);
-	}
-
-	function octets_to_blind_proof_gen_state(
-		octs: BufferSource,
-	): [BufferSource, BufferSource, bigint[]] {
-		const octs_u8 = toU8(octs);
-		const K = Number(OS2IP(octs_u8.slice(8, 16)));
-
-		let sidx = octs_u8.byteLength - K * octet_scalar_length;
-		const r_key = range(K).map(i => OS2IP(octs_u8.slice(
-			sidx + i * octet_scalar_length,
-			sidx + (i + 1) * octet_scalar_length,
-		)));
-
-		const challenge_len = octet_scalar_length;
-		sidx = sidx - challenge_len;
-		const challenge = octs_u8.slice(sidx, sidx + challenge_len);
-
-		const incomplete_proof = octs_u8.slice(0, sidx);
-		return [incomplete_proof, challenge, r_key];
-	}
-
-	function incomplete_proof_octets_to_randomized_keys(
-		incomplete_proof: BufferSource,
-	): PointG1[] {
-		const incomplete_proof_u8 = toU8(incomplete_proof);
-		const K = Number(OS2IP(incomplete_proof_u8.slice(8, 16)));
-		const sidx = incomplete_proof.byteLength - K * octet_point_length;
-		return range(K).map(i => Bbs.octets_to_point_E1(incomplete_proof_u8.slice(
-			sidx + i * octet_point_length,
-			sidx + (i + 1) * octet_point_length,
-		)));
-	}
-
-	async function BlindProofGenFinalize(
-		state: BufferSource,
-		prover_binding_signatures: BufferSource[] | null,
-	): Promise<BufferSource> {
-		prover_binding_signatures = prover_binding_signatures ?? [];
-
-		const [incomplete_proof, challenge, r_key] = octets_to_blind_proof_gen_state(state);
-		const randomized_keys = incomplete_proof_octets_to_randomized_keys(incomplete_proof);
-
-		const adapted_sigs: KeyBindingSignature[] = prover_binding_signatures.map((sig, i) => {
-			switch (sig.byteLength) {
-				case 2 * octet_scalar_length:
-					const [s, c] = schnorr_parse_signature(sig);
-					return ["SCHNORR", schnorr_encode_signature([Fr.add(s, Fr.mul(r_key[i], c)), c])];
-
-				case 2 * octet_point_length:
-					return [
-						"BLS",
-						Bbs.serialize([
-							Bbs.octets_to_point_E2(sig).add(
-								G2.hashToCurve(toU8(Bbs.serialize([randomized_keys[i], challenge])))
-									.multiply(r_key[i])),
-						]),
-					];
-
-				default:
-					throw new Error("Unknown signature length: " + sig.byteLength);
-			}
-		});
-
-		return concat(incomplete_proof, key_bind_sigs_to_octets(adapted_sigs));
-	}
-
 	async function BlindProofGenKeyProve(
 		generator: PointG1,
 		sk: bigint,
@@ -1033,6 +945,49 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 		return await Bbs.hash_to_scalar(c_octs, hash_to_scalar_dst);
 	}
 
+	function commit_state_to_octets(state: CommitState): BufferSource {
+		const [K, C, s_hat, m_hat, challenge] = state;
+		const M = m_hat.length;
+		const N = K.length;
+		return Bbs.serialize([M, N, ...K, C, s_hat, ...m_hat, challenge]);
+	}
+
+	function octets_to_commit_state(octets: BufferSource): CommitState {
+		const state_len_floor = 8 + 8 + octet_point_length + 2 * octet_scalar_length;
+		if (octets.byteLength < state_len_floor) {
+			throw new Error(`State too short: expected at least ${state_len_floor} octets, was ${octets.byteLength}`, {
+				cause:
+					{ octets }
+			});
+		}
+		const [[M_octs, N_octs], rest] = split_sections(toU8(octets), [8, 8]);
+		const M = Number(OS2IP(M_octs));
+		const N = Number(OS2IP(N_octs));
+		const state_len = state_len_floor + N * octet_point_length + M * octet_scalar_length;
+		if (octets.byteLength !== state_len) {
+			throw new Error(`Invalid state length: expected ${state_len} octets, was ${octets.byteLength}`, {
+				cause: {
+					octets,
+					state_len
+				}
+			});
+		}
+		const [[K_octs, C_octs, s_hat_octs, m_hat_octs, challenge_octs], tail] = split_sections(
+			rest,
+			[N * octet_point_length, octet_point_length, octet_scalar_length, M * octet_scalar_length, octet_scalar_length],
+		);
+		if (tail.byteLength !== 0) {
+			throw new Error("Trailing octets", { cause: { octets, state_len, tail } });
+		}
+
+		return [
+			split_sections(K_octs, range(N).map(() => octet_point_length))[0].map(Bbs.octets_to_point_E1),
+			Bbs.octets_to_point_E1(C_octs),
+			OS2IP(s_hat_octs),
+			split_sections(m_hat_octs, range(M).map(() => octet_scalar_length))[0].map(OS2IP),
+			OS2IP(challenge_octs),
+		];
+	}
 
 	function commitment_with_proof_to_octets(
 		commitment: [PointG1, PointG1[]],
@@ -1110,6 +1065,50 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 		});
 
 		return [[C, K], [s_hat, m_hat, challenge, point_proofs]];
+	}
+
+	function blind_proof_gen_state_to_octets(
+		incomplete_proof: BufferSource,
+		challenge: bigint,
+		r_key: bigint[],
+	): BufferSource {
+		return Bbs.serialize([
+			incomplete_proof,
+			challenge,
+			...r_key,
+		]);
+	}
+
+	function octets_to_blind_proof_gen_state(
+		octs: BufferSource,
+	): [BufferSource, BufferSource, bigint[]] {
+		const octs_u8 = toU8(octs);
+		const K = Number(OS2IP(octs_u8.slice(8, 16)));
+
+		let sidx = octs_u8.byteLength - K * octet_scalar_length;
+		const r_key = range(K).map(i => OS2IP(octs_u8.slice(
+			sidx + i * octet_scalar_length,
+			sidx + (i + 1) * octet_scalar_length,
+		)));
+
+		const challenge_len = octet_scalar_length;
+		sidx = sidx - challenge_len;
+		const challenge = octs_u8.slice(sidx, sidx + challenge_len);
+
+		const incomplete_proof = octs_u8.slice(0, sidx);
+		return [incomplete_proof, challenge, r_key];
+	}
+
+	function incomplete_proof_octets_to_randomized_keys(
+		incomplete_proof: BufferSource,
+	): PointG1[] {
+		const incomplete_proof_u8 = toU8(incomplete_proof);
+		const K = Number(OS2IP(incomplete_proof_u8.slice(8, 16)));
+		const sidx = incomplete_proof.byteLength - K * octet_point_length;
+		return range(K).map(i => Bbs.octets_to_point_E1(incomplete_proof_u8.slice(
+			sidx + i * octet_point_length,
+			sidx + (i + 1) * octet_point_length,
+		)));
 	}
 
 	function incomplete_blind_proof_to_octets(
