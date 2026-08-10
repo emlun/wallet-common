@@ -156,7 +156,7 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 		const signer_scalars = message_scalars.slice(0, issuer_known_messages_no);
 		const committed_message_scalars = message_scalars.slice(issuer_known_messages_no);
 		const proof_scalars = [...signer_scalars, secret_prover_blind, ...committed_message_scalars];
-		const res = await BlindCoreVerify(
+		const res = await CoreVerify(
 			PK,
 			signature,
 			generators,
@@ -244,7 +244,7 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 		const proof_index = range(L).map(i => i < N ? i : i + 1);
 		const proof_disclosed_indexes = disclosed_indexes.map(i => proof_index[i]);
 		const proof_commitment_indexes = commitment_indexes.map(i => proof_index[i]);
-		const state_and_add_zkp_info_and_dpk_challenges = await BlindCoreProofGenInit(
+		const state_and_add_zkp_info_and_dpk_challenges = await CoreProofGenInit(
 			PK,
 			signature,
 			generators,
@@ -342,7 +342,7 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 		const blind_generators = await create_blind_generators(total_msgs_no - issuer_known_messages_no + 1);
 		const keybind_generators = await create_keybind_generators(K);
 		const message_scalars = await Bbs.messages_to_scalars(disclosed_messages, api_id);
-		const result = await BlindCoreProofVerify(
+		const result = await CoreProofVerify(
 			PK,
 			proof_u8,
 			generators,
@@ -498,7 +498,7 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 		return Bbs.signature_to_octets(A, e);
 	}
 
-	async function BlindCoreVerify(
+	async function CoreVerify(
 		PK: BufferSource,
 		signature: BufferSource,
 		generators: PointG1[],
@@ -536,7 +536,7 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 		return true;
 	}
 
-	async function BlindCoreProofGenInit(
+	async function CoreProofGenInit(
 		PK: BufferSource,
 		signature: BufferSource,
 		generators: PointG1[],
@@ -622,7 +622,7 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 			commitment_indexes,
 		};
 
-		const challenge = await BlindProofChallengeCalculate(
+		const challenge = await ProofChallengeCalculate(
 			[Abar, Bbar, D, Y, T1, T2, domain],
 			commitment_init_res,
 			disclosed_messages,
@@ -700,7 +700,7 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 		return schnorr_encode_signature(await schnorr_sign_sha256(generator, sk, m));
 	}
 
-	async function BlindCoreProofVerify(
+	async function CoreProofVerify(
 		PK: BufferSource,
 		proof: BufferSource,
 		generators: PointG1[],
@@ -787,7 +787,7 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 			commitment_indexes,
 		};
 
-		const challenge = await BlindProofChallengeCalculate(
+		const challenge = await ProofChallengeCalculate(
 			[Abar, Bbar, D, Y, T1, T2, domain],
 			commitment_init_res,
 			disclosed_messages,
@@ -902,7 +902,7 @@ function createSuite(Bbs: Bbs.CipherSuite): BlindBbsSuite {
 		return Bbs.hash_to_scalar(c_octs, blind_challenge_dst);
 	}
 
-	async function BlindProofChallengeCalculate(
+	async function ProofChallengeCalculate(
 		init_res: [PointG1, PointG1, PointG1, PointG1, PointG1, PointG1, bigint],
 		commitment_init_res: { commitments: PointG1[], commitments_proofs: PointG1[], commitment_indexes: number[] },
 		disclosed_messages: bigint[],
