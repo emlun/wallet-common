@@ -1249,7 +1249,7 @@ type BlindBbsSuite = {
 	Sig: SignatureScheme,
 }
 
-type SignatureScheme = {
+export type SignatureScheme = {
 	KeyGen(Hk: PointG1): Promise<[bigint, PointG1]>,
 	Sign(Hk: PointG1, SK: bigint, message: BufferSource): Promise<BufferSource>,
 	Verify(Hk: PointG1, PK: PointG1, sig: BufferSource, message: BufferSource): Promise<true>,
@@ -1275,12 +1275,14 @@ function NullSignatureScheme(): SignatureScheme {
 	};
 }
 
-function SchnorrSignatureScheme(
+export function SchnorrSignatureScheme(
 	Bbs: Bbs.CipherSuite,
 	hash: (msg: BufferSource) => Promise<bigint>,
 	calculate_random_scalar: () => Promise<bigint>,
+	calculate_random_nonce: ((Hk: PointG1, SK: bigint, message: BufferSource, i: number) => Promise<bigint>) | null,
 ): SignatureScheme {
 	const { params: { curves: { fields: { Fr } }, octet_scalar_length } } = Bbs;
+	calculate_random_nonce = calculate_random_nonce || calculate_random_scalar;
 	return {
 		async KeyGen(Hk: PointG1): Promise<[bigint, PointG1]> {
 			const SK = await calculate_random_scalar();
@@ -1288,8 +1290,8 @@ function SchnorrSignatureScheme(
 		},
 
 		async Sign(Hk: PointG1, SK: bigint, message: BufferSource): Promise<BufferSource> {
-			while (true) {
-				const k_tilde = await calculate_random_scalar();
+			for (let i = 0; true; ++i) {
+				const k_tilde = await calculate_random_nonce(Hk, SK, message, i);
 				const R = Hk.multiply(k_tilde);
 				const c = await hash(concat(Bbs.serialize([R]), message));
 				if (c < Fr.ORDER) {
@@ -1403,6 +1405,7 @@ export function getCipherSuite(
 				BbsSuite,
 				async (msg) => OS2IP(await sha256(msg)),
 				async () => (await BbsSuite.real_calculate_random_scalars(1))[0],
+				null,
 			);
 			break;
 		}
