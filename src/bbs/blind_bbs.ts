@@ -274,7 +274,7 @@ function createSuite(suite_id: SuiteId, Bbs: Bbs.CipherSuite, Sig: SignatureSche
 			proof = concat(proof, await Sig.AdaptSig(
 				keybind_signatures[i - 1],
 				r_key[i - 1],
-				concat(PK_tilde_octs[i - 1], Bbs.serialize([challenge]))));
+				await sha256(concat(PK_tilde_octs[i - 1], Bbs.serialize([challenge])))));
 		}
 		return proof;
 	}
@@ -584,7 +584,7 @@ function createSuite(suite_id: SuiteId, Bbs: Bbs.CipherSuite, Sig: SignatureSche
 		const commitments_proof: [PointG1[], bigint[]] = [commitment_init_res.commitments, s_hat];
 
 		const state = proof_gen_state_to_octets(bbs_proof, challenge, commitments_proof, PK_tildes, r_key);
-		const c_r_key = range(K).map(i => Bbs.serialize([PK_tildes[i], challenge]));
+		const c_r_key = await Promise.all(range(K).map(i => sha256(Bbs.serialize([PK_tildes[i], challenge]))));
 		const add_zkp_info: [bigint[], bigint[]] = [
 			commitment_indexes.map(i => messages[i]),
 			s,
@@ -696,7 +696,7 @@ function createSuite(suite_id: SuiteId, Bbs: Bbs.CipherSuite, Sig: SignatureSche
 					generators[L + 1 - K + i],
 					keybind_randomized_keys[i],
 					sig,
-					Bbs.serialize([keybind_randomized_keys[i], challenge]),
+					await sha256(Bbs.serialize([keybind_randomized_keys[i], challenge])),
 				)) {
 					return true;
 				}
