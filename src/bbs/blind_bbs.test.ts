@@ -1,6 +1,6 @@
 import { assert, describe, it } from "vitest";
 
-import { concat, fromHex, toHex, toU8, toUtf8 } from "../utils/util";
+import { concat, fromHex, OS2IP, toHex, toU8, toUtf8 } from "../utils/util";
 import { asyncAssertThrows } from "../testutil";
 import { CipherSuite, DisclosureChoice, getCipherSuite, PointG1, SuiteId } from "./blind_bbs";
 
@@ -8,8 +8,9 @@ import { CipherSuite, DisclosureChoice, getCipherSuite, PointG1, SuiteId } from 
 describe("Blind BBS suite:", () => {
 
 	const nonKeybindSuites: SuiteId[] = ['BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_'];
+	const schnorrSuite: SuiteId = 'BBS-SCHNORR_BLS12381G1_XMD:SHA-256_SSWU_RO_';
 	const keybindSuites: SuiteId[] = [
-		'BBS-SCHNORR_BLS12381G1_XMD:SHA-256_SSWU_RO_',
+		schnorrSuite,
 		'BBS-BLS_BLS12381G1_XMD:SHA-256_SSWU_RO_',
 	];
 	const blindBlsSuites: SuiteId[] = [
@@ -67,6 +68,23 @@ describe("Blind BBS suite:", () => {
 		);
 
 		describe_blind_bls_properties(suite);
+	}));
+
+	[schnorrSuite].forEach(suiteId => describe(suiteId, () => {
+		const suite = getCipherSuite(
+			suiteId,
+			{
+				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-signatures-08.html#name-mocked-random-scalars
+				// with
+				// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-commitment
+				mocked_random_scalars_params: {
+					SEED: toUtf8("3.141592653589793238462643383279"),
+					DST: toUtf8("BBS_BLS12381G1_XMD:SHA-256_SSWU_RO_H2G_HM2S_COMMIT_MOCK_RANDOM_SCALARS_DST_"),
+				},
+			},
+		);
+
+		describe_hardware_keybind_properties(suite);
 	}));
 
 	function describe_test_vectors(suite: CipherSuite) {
@@ -925,6 +943,115 @@ describe("Blind BBS suite:", () => {
 					});
 				});
 			});
+		});
+	}
+
+	function describe_hardware_keybind_properties(suite: CipherSuite) {
+		const {
+			BlindBbs,
+			Bbs: {
+				serialize,
+			},
+			params: {
+				curves: { G1 },
+			},
+		} = suite;
+		const {
+			BlindSign,
+			BlindProofGenInit,
+			BlindProofGenFinalize,
+			BlindProofVerify,
+			CommitInit,
+			CommitFinalize,
+		} = BlindBbs;
+
+		const committed_messages = [
+			fromHex("5982967821da3c5983496214df36aa5e58de6fa25314af4cf4c00400779f08c3"),
+			fromHex("a75d8b634891af92282cc81a675972d1929d3149863c1fc0"),
+			fromHex("835889a40744813a892eff9deb1edaeb"),
+			fromHex("e1ca9729410dc6ba"),
+			fromHex(""),
+		];
+
+		// https://www.ietf.org/archive/id/draft-irtf-cfrg-bbs-blind-signatures-02.html#name-proof-test-vectors
+		const SK = 0x60e55110f76883a13d030b2f6bd11883422d5abde717569fc0731f51237169fcn;
+		const PK = fromHex(
+			"a820f230f6ae38503b86c70dc50b61c58a77e45c39ab25c0652bbaa8fa1" +
+			"36f2851bd4781c9dcde39fc9d1d52c9e60268061e7d7632171d91aa8d46" +
+			"0acee0e96f1e7c4cfb12d3ff9ab5d5dc91c277db75c845d649ef3c4f63a" +
+			"ebc364cd55ded0c"
+		);
+		const header = fromHex("11223344556677889900aabbccddeeff");
+
+		const messages = [
+			"9872ad089e452c7b6e283dfac2a80d58e8d0ff71cc4d5e310a1debdda4a45f02",
+			"c344136d9ab02da4dd5908bbba913ae6f58c2cc844b802a6f811f5fb075f9b80",
+			"7372e9daa5ed31e6cd5c825eac1b855e84476a1d94932aa348e07b73",
+			"77fe97eb97a1ebe2e81e4e3597a3ee740a66e9ef2412472c",
+			"496694774c5604ab1b2544eababcf0f53278ff50",
+			"515ae153e22aae04ad16f759e07237b4",
+			"d183ddc6e2665aa4e2f088af",
+			"ac55fb33a75909ed",
+			"96012096",
+			"",
+		].map(fromHex);
+
+		const presentation_header = fromHex("bed231d880675ed101ead304512e043ade9958dd0241ea70b4b3957fba941501");
+
+		// This public key is on the BP1 generator 97f1d3a7...db22c6bb
+		const dpk_rfc8235 = G1.Point.fromHex("83b93af60b1e844b992f726dd8d6df0ffe846e83de5b9c3df5705de3bb96c781f98215602bb3a54a757351573066d502");
+		// RFC 8235 computes the public key as `A = G x [a]` with generator G and secret key a,
+		// and the signature as `r = v - a*c` with random nonce v, and challenge hash c,
+		// and therefore the verification checks the identity `V = G x [r] + A x [c]` with `V = G x [v]`.
+		// In https://eprint.iacr.org/2025/1995.pdf the Schnorr signature scheme is written with
+		// public key still `pk = sk*H0` with secret key sk and generator H0,
+		// but signature as `s = ω + c*sk` with nonce ω,
+		// and therefore verification instead checks the identity `R = s*H0 - c*pk` with `R = ω*H0`.
+		// Note the flipped signs between signature formulations.
+		// Luckily, the two are compatible and can be translated between by simply negating the public key.
+		// Identifying `s' = r = v - a*c = ω - c*sk` and `pk = -A = G x [-a] = (-sk)*H0` we get:
+		// `R = s'*H0 - c*(-pk) = (ω*H0 - c*sk*H0) - c*pk = (ω*H0 - c*sk*H0) - c*(-sk)*H0 = ω*H0 - c*sk*H0 + c*sk*H0 = ω*H0`
+		// so the verification identity `R = s*H0 - c*pk` holds for the signature `r = v - a*c` if the public key is negated.
+		const keybind_public_keys = [dpk_rfc8235.negate()];
+		const keybind_public_keys_serialized: BufferSource[] = keybind_public_keys.map(K => serialize([K]));
+		const keybind_commit_signatures = [fromHex("3513e5517490e2f80bc2812e609aa9ebbebfc1029e5cded759ff65e994f9400b6564af908b0f24a23e30a338047445c60594fb71760cda0108d4c08c4351dabf")];
+		const keybind_proof_signatures = [fromHex("2696f2595e3026f89618048c4dfbd4d895463828c6d2e57d3d2acce80d89fef30ee68d391ac9769900bdfc07daa6f30f4503fe45c0544749b0701af1e648647c")];
+
+		it("proof on staged commitment with mixed disclosures and real hardware key binding on BP1", async () => {
+			const [state, secret_prover_blind, challenge] = await CommitInit(committed_messages, keybind_public_keys_serialized);
+			console.log("commit challenge:", toHex(serialize([challenge])));
+			const commitment_with_proof = await CommitFinalize(
+				state,
+				keybind_commit_signatures,
+			);
+			const signature = await BlindSign(SK, PK, commitment_with_proof, header, messages);
+			const options: DisclosureChoice[] = ["DISCLOSE", "COMMIT", "HIDE"];
+			const message_disclosures: DisclosureChoice[] = messages.map((_, i) => options[i % 3]);
+			const committed_message_disclosures: DisclosureChoice[] = committed_messages.map((_, i) => options[i % 3]);
+			const [proof_state, , dpk_challenges] = await BlindProofGenInit(
+				PK, signature, header, presentation_header,
+				[...messages, ...committed_messages], messages.length,
+				[...message_disclosures, ...committed_message_disclosures],
+				keybind_public_keys_serialized,
+				secret_prover_blind,
+			);
+			dpk_challenges.forEach((c, i) => {
+				console.log(`proof challenge ${i}:`, toHex(serialize([c])));
+			});
+			const keybind_sigs = keybind_proof_signatures;
+			const proof = await BlindProofGenFinalize(proof_state, keybind_sigs);
+			assert(await BlindProofVerify(
+				PK,
+				proof,
+				header,
+				presentation_header,
+				messages.length,
+				[
+					...messages.filter((_, i) => message_disclosures[i] === "DISCLOSE"),
+					...committed_messages.filter((_, i) => committed_message_disclosures[i] === "DISCLOSE"),
+				],
+				[...message_disclosures, ...committed_message_disclosures],
+			));
 		});
 	}
 
