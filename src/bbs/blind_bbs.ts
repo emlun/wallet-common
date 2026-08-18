@@ -1281,8 +1281,16 @@ export function SchnorrSignatureScheme(
 	calculate_random_scalar: () => Promise<bigint>,
 	calculate_random_nonce: ((Hk: PointG1, SK: bigint, message: BufferSource, i: number) => Promise<bigint>) | null,
 ): SignatureScheme {
-	const { params: { curves: { fields: { Fr } }, octet_scalar_length } } = Bbs;
+	const { params: { curves: { fields: { Fp, Fr } }, octet_scalar_length } } = Bbs;
 	calculate_random_nonce = calculate_random_nonce || calculate_random_scalar;
+
+	// const serializeNoncePoint = (r: PointG1) => Bbs.serialize([r]);
+	const serializeNoncePoint = (r: PointG1) => concat(
+		new Uint8Array([0x04]),
+		Fp.toBytes(r.toAffine().x),
+		Fp.toBytes(r.toAffine().y),
+	);
+
 	return {
 		async KeyGen(Hk: PointG1): Promise<[bigint, PointG1]> {
 			const SK = await calculate_random_scalar();
@@ -1293,7 +1301,7 @@ export function SchnorrSignatureScheme(
 			for (let i = 0; true; ++i) {
 				const k_tilde = await calculate_random_nonce(Hk, SK, message, i);
 				const R = Hk.multiply(k_tilde);
-				const c = await hash(concat(Bbs.serialize([R]), message));
+				const c = await hash(concat(serializeNoncePoint(R), message));
 				if (c < Fr.ORDER) {
 					const k_hat = Fr.add(k_tilde, Fr.mul(SK, c));
 					return Bbs.serialize([k_hat, c]);
@@ -1312,7 +1320,7 @@ export function SchnorrSignatureScheme(
 				throw new Error("Invalid signature");
 			}
 			const R = Hk.multiply(s).subtract(PK.multiply(c));
-			const cv = await hash(concat(Bbs.serialize([R]), message));
+			const cv = Fr.create(await hash(concat(serializeNoncePoint(R), message)));
 			if (cv === c) {
 				return true;
 			}
