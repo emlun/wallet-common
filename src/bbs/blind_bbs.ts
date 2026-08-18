@@ -48,7 +48,7 @@ function createSuite(suite_id: SuiteId, Bbs: Bbs.CipherSuite, Sig: SignatureSche
 		});
 		const committed_message_scalars = await Bbs.messages_to_scalars(committed_messages, api_id);
 		const blind_generators = await Bbs.create_generators(committed_message_scalars.length + 1, concat(toUtf8("BLIND_"), api_id));
-		const keybind_generators = await Bbs.create_generators(K, concat(toUtf8("KEYBIND_"), api_id));
+		const keybind_generators = [G1.Point.BASE, ...await Bbs.create_generators(K - 1, concat(toUtf8("KEYBIND_"), api_id))].slice(0, K);
 		const [state, secret_prover_blind, challenge] = await CoreCommitInit(
 			[...blind_generators, ...keybind_generators],
 			committed_message_scalars,
@@ -87,7 +87,7 @@ function createSuite(suite_id: SuiteId, Bbs: Bbs.CipherSuite, Sig: SignatureSche
 		const [[commitment, keybind_public_keys], commitment_proof] = com_res;
 		const [_s_hat, m_hat, _challenge, keybind_signatures] = commitment_proof;
 		const blind_generators = await Bbs.create_generators(m_hat.length + 1, concat(toUtf8("BLIND_"), api_id));
-		const keybind_generators = await Bbs.create_generators(keybind_signatures.length, concat(toUtf8("KEYBIND_"), api_id));
+		const keybind_generators = [G1.Point.BASE, ...await Bbs.create_generators(keybind_signatures.length - 1, concat(toUtf8("KEYBIND_"), api_id))].slice(0, keybind_signatures.length);
 		const generators = [...blind_generators, ...keybind_generators];
 		await CoreCommitVerify(commitment, keybind_public_keys, commitment_proof, generators, api_id);
 		return [[commitment, keybind_public_keys], generators];
@@ -147,7 +147,7 @@ function createSuite(suite_id: SuiteId, Bbs: Bbs.CipherSuite, Sig: SignatureSche
 
 		const generators = await Bbs.create_generators(issuer_known_messages_no + 1, api_id);
 		const blind_generators = await Bbs.create_generators(L - issuer_known_messages_no + 1, concat(toUtf8("BLIND_"), api_id));
-		const keybind_generators = await Bbs.create_generators(K, concat(toUtf8("KEYBIND_"), api_id));
+		const keybind_generators = [G1.Point.BASE, ...await Bbs.create_generators(K - 1, concat(toUtf8("KEYBIND_"), api_id))].slice(0, K);
 		const message_scalars = await Bbs.messages_to_scalars(messages, api_id);
 		const signer_scalars = message_scalars.slice(0, issuer_known_messages_no);
 		const committed_message_scalars = message_scalars.slice(issuer_known_messages_no);
@@ -228,7 +228,7 @@ function createSuite(suite_id: SuiteId, Bbs: Bbs.CipherSuite, Sig: SignatureSche
 
 		const generators = await Bbs.create_generators(issuer_known_messages_no + 1, api_id);
 		const blind_generators = await Bbs.create_generators(L - issuer_known_messages_no + 1, concat(toUtf8("BLIND_"), api_id));
-		const keybind_generators = await Bbs.create_generators(K, concat(toUtf8("KEYBIND_"), api_id));
+		const keybind_generators = [G1.Point.BASE, ...await Bbs.create_generators(K - 1, concat(toUtf8("KEYBIND_"), api_id))].slice(0, K);
 		const message_scalars = await Bbs.messages_to_scalars(messages, api_id);
 		const signer_scalars = message_scalars.slice(0, issuer_known_messages_no);
 		const committed_message_scalars = message_scalars.slice(issuer_known_messages_no);
@@ -330,7 +330,7 @@ function createSuite(suite_id: SuiteId, Bbs: Bbs.CipherSuite, Sig: SignatureSche
 
 		const generators = await Bbs.create_generators(issuer_known_messages_no + 1, api_id);
 		const blind_generators = await Bbs.create_generators(total_msgs_no - issuer_known_messages_no + 1, concat(toUtf8("BLIND_"), api_id));
-		const keybind_generators = await Bbs.create_generators(K, concat(toUtf8("KEYBIND_"), api_id));
+		const keybind_generators = [G1.Point.BASE, ...await Bbs.create_generators(K - 1, concat(toUtf8("KEYBIND_"), api_id))].slice(0, K);
 		const message_scalars = await Bbs.messages_to_scalars(disclosed_messages, api_id);
 		const result = await CoreProofVerify(
 			PK,

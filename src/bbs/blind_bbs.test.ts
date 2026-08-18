@@ -519,7 +519,7 @@ describe("Blind BBS suite:", () => {
 					await hash_to_scalar(toUtf8("keybind_private_key.1"), toUtf8("Key Binding Blind BBS test")),
 					await hash_to_scalar(toUtf8("keybind_private_key.2"), toUtf8("Key Binding Blind BBS test")),
 				];
-				const keybind_generators = await create_generators(keybind_private_keys.length, concat(toUtf8("KEYBIND_"), api_id));
+				const keybind_generators = [G1.Point.BASE, ...await create_generators(keybind_private_keys.length - 1, concat(toUtf8("KEYBIND_"), api_id))].slice(0, keybind_private_keys.length);
 				const keybind_public_keys: PointG1[] = (
 					keybind_private_keys
 						.map((k, i) => keybind_generators[i].multiply(k))
@@ -559,7 +559,7 @@ describe("Blind BBS suite:", () => {
 
 					const committed_message_scalars = await messages_to_scalars(committed_messages, api_id);
 					const blind_generators = await create_generators(committed_messages.length + 1, concat(toUtf8("BLIND_"), api_id));
-					const keybind_generators = await create_generators(keybind_private_keys.length, concat(toUtf8("KEYBIND_"), api_id));
+					const keybind_generators = [G1.Point.BASE, ...await create_generators(keybind_private_keys.length - 1, concat(toUtf8("KEYBIND_"), api_id))].slice(0, keybind_private_keys.length);
 					const keybind_public_keys: PointG1[] = (
 						keybind_private_keys
 							.map((k, i) => keybind_generators[i].multiply(k))
@@ -717,7 +717,7 @@ describe("Blind BBS suite:", () => {
 					await hash_to_scalar(toUtf8("keybind_private_key.1"), toUtf8("Key Binding Blind BBS test")),
 					await hash_to_scalar(toUtf8("keybind_private_key.2"), toUtf8("Key Binding Blind BBS test")),
 				];
-				const keybind_generators = await create_generators(keybind_private_keys.length, concat(toUtf8("KEYBIND_"), api_id));
+				const keybind_generators = [G1.Point.BASE, ...await create_generators(keybind_private_keys.length - 1, concat(toUtf8("KEYBIND_"), api_id))].slice(0, keybind_private_keys.length);
 				const keybind_public_keys: PointG1[] = (
 					keybind_private_keys
 						.map((k, i) => keybind_generators[i].multiply(k))
@@ -840,7 +840,7 @@ describe("Blind BBS suite:", () => {
 					await hash_to_scalar(toUtf8("keybind_private_key.1"), toUtf8("Key Binding Blind BBS test")),
 					await hash_to_scalar(toUtf8("keybind_private_key.2"), toUtf8("Key Binding Blind BBS test")),
 				];
-				const keybind_generators = await create_generators(keybind_private_keys.length, concat(toUtf8("KEYBIND_"), api_id));
+				const keybind_generators = [G1.Point.BASE, ...await create_generators(keybind_private_keys.length - 1, concat(toUtf8("KEYBIND_"), api_id))].slice(0, keybind_private_keys.length);
 				const keybind_public_keys: PointG1[] = (
 					keybind_private_keys
 						.map((k, i) => keybind_generators[i].multiply(k))
@@ -938,7 +938,7 @@ describe("Blind BBS suite:", () => {
 				calculate_random_scalars,
 			},
 			params: {
-				curves: { G2, fields: { Fr } },
+				curves: { G1, G2, fields: { Fr } },
 				octet_point_length,
 			},
 		} = suite;
@@ -958,7 +958,7 @@ describe("Blind BBS suite:", () => {
 				await hash_to_scalar(toUtf8("keybind_private_key.1"), toUtf8("Key Binding Blind BBS test")),
 				await hash_to_scalar(toUtf8("keybind_private_key.2"), toUtf8("Key Binding Blind BBS test")),
 			];
-			const keybind_generators = await create_generators(keybind_private_keys.length, concat(toUtf8("KEYBIND_"), api_id));
+			const keybind_generators = [G1.Point.BASE, ...await create_generators(keybind_private_keys.length - 1, concat(toUtf8("KEYBIND_"), api_id))].slice(0, keybind_private_keys.length);
 			const keybind_public_keys: PointG1[] = (
 				keybind_private_keys
 					.map((k, i) => keybind_generators[i].multiply(k))
