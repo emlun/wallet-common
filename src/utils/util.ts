@@ -1,8 +1,10 @@
 export function toU8(b: BufferSource): Uint8Array {
-	if (b instanceof ArrayBuffer) {
+	if (b instanceof Uint8Array) {
+		return b;
+	} else if (b instanceof ArrayBuffer) {
 		return new Uint8Array(b);
 	} else if (ArrayBuffer.isView(b)) {
-		return new Uint8Array(b.buffer);
+		return new Uint8Array(b.buffer, b.byteOffset, b.byteOffset + b.byteLength);
 	}
 	throw new Error(`Unknown binary type: ${typeof b} ${b}`, { cause: b })
 }
