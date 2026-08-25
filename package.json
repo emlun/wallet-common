@@ -40,5 +40,10 @@
 		"typescript": "^5.7.3",
 		"vitest": "^3.2.4",
 		"xmldom": "^0.6.0"
+	},
+	"allowScripts": {
+		"cbor-extract": false,
+		"esbuild": false,
+		"fsevents": false
 	}
 }
