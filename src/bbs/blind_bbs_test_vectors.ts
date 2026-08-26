@@ -61,6 +61,7 @@ async function generate_keybind_test_vectors(suite: CipherSuite, SigOverride: Si
 			hash_to_scalar,
 			create_generators,
 		},
+		params: { curves: { G1 } },
 	} = suite;
 	const {
 		api_id,
@@ -88,7 +89,7 @@ async function generate_keybind_test_vectors(suite: CipherSuite, SigOverride: Si
 		await hash_to_scalar(toUtf8("keybind_private_keys[1]"), keybind_private_keys_hash_dst),
 		await hash_to_scalar(toUtf8("keybind_private_keys[2]"), keybind_private_keys_hash_dst),
 	];
-	const keybind_generators = await create_generators(keybind_private_keys.length, concat(toUtf8("KEYBIND_"), api_id));
+	const keybind_generators = [G1.Point.BASE, ...await create_generators(keybind_private_keys.length - 1, concat(toUtf8("KEYBIND_"), api_id))];
 	const keybind_public_keys: PointG1[] = (
 		keybind_private_keys
 			.map((k, i) => keybind_generators[i].multiply(k))
@@ -122,7 +123,7 @@ keybind_private_keys = [
 
 The key binding generators are:
 ~~~
-keybind_generators = BBS.create_generators(3, "KEYBIND_${fromUtf8(api_id)}")
+keybind_generators = [ BP1 ].append(BBS.create_generators(3, "KEYBIND_${fromUtf8(api_id)}"))
                    = ${format_list(2, keybind_generators.map(g => `h'${g.toHex()}'`))}
 ~~~
 ` + signature_description;
